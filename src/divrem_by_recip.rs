@@ -107,12 +107,11 @@ fn mul128(a: u64, b: u64) -> (u64, u64) {
 fn reciprocal_2by1(d: u64) -> u64 {
     debug_assert!(d & 0x8000_0000_0000_0000 != 0, "d must be normalized");
 
-    let d9 = d >> 55;
-    let v0 = RECIPROCAL_TABLE[(d9 - 256) as usize] as u32;
+    let v0 = RECIPROCAL_TABLE[((d >> 55) - 256) as usize] as u32;
 
     let d40  = (d >> 24) + 1;
-    let v0v0 = v0.wrapping_mul(v0);
-    let term = ((v0v0 as u64).wrapping_mul(d40) >> 40) as u32;
+    let v0sq = v0.wrapping_mul(v0) as u64;
+    let term = (v0sq.wrapping_mul(d40) >> 40) as u32;
     let v1   = (v0 << 11).wrapping_sub(term).wrapping_sub(1) as u64;
 
     let v2 = (v1 << 13).wrapping_add(
