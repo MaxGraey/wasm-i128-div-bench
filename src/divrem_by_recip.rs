@@ -12,6 +12,7 @@
  * register moves.
  */
 
+use crate::utils::*;
 
 /* Reciprocal lookup table. Entry table[i] = floor(0x7fd00 / (i + 256)).
  * 256 x u16 = 512 bytes */
@@ -122,7 +123,6 @@ fn reciprocal_2by1(d: u64) -> u64 {
 /* Reciprocal for a normalized 3-by-2 divisor d (high limb top bit set). */
 fn reciprocal_3by2(d: (u64, u64)) -> u64 {
     let mut v = reciprocal_2by1(d.0);
-
     let mut p = d.0.wrapping_mul(v);
     p = p.wrapping_add(d.1);
 
@@ -377,19 +377,74 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
 
         acc.0 |= q;
         acc.1 |= r.0 | r.1;
+
         i += 1;
     }
 
     acc
 }
 
+/* Criterion micro-benchmarks for the public API. Inputs come from a seeded
+ * SmallRng so this backend and divrem_builtin see identical operands. */
+use criterion::Criterion;
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
+use std::hint::black_box;
+
+pub fn bench_udivrem128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<u128>();
+    c.bench_function("reciprocal/udivrem128", |b| {
+        b.iter(|| udivrem128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_udiv128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<u128>();
+    c.bench_function("reciprocal/udiv128", |b| {
+        b.iter(|| udiv128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_urem128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<u128>();
+    c.bench_function("reciprocal/urem128", |b| {
+        b.iter(|| urem128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_sdivrem128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<i128>();
+    c.bench_function("reciprocal/sdivrem128", |b| {
+        b.iter(|| sdivrem128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_sdiv128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<i128>();
+    c.bench_function("reciprocal/sdiv128", |b| {
+        b.iter(|| sdiv128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_srem128(c: &mut Criterion) {
+    let (x, y) = rand_operands::<i128>();
+    c.bench_function("reciprocal/srem128", |b| {
+        b.iter(|| srem128(black_box(x), black_box(y)))
+    });
+}
+
+pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
+    let mut rng = SmallRng::seed_from_u64(SEED);
+    let x = (rng.random::<u64>(), rng.random::<u64>());
+    c.bench_function("reciprocal/divrem_loop_invariant", |b| {
+        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(BENCH_ITERS)))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::SEED;
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
-
-    /* Golden-ratio seed so the random cases stay reproducible. */
-    const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
     #[test]
     fn umul_matches_native() {

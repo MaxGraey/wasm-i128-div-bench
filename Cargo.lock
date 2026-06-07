@@ -619,6 +619,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "getrandom",
+ "num-traits",
  "rand",
  "wasm-bindgen",
 ]
