@@ -1,8 +1,35 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
-name = "wasm-i128-div-bench"
+name    = "wasm-i128-div-bench"
 version = "0.1.0"
 edition = "2024"
 publish = false
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+lto = "fat"
+strip = true
+rustflags = [
+    "-Z", "mir-opt-level=5",
+    "-Z", "share-generics",
+    "-Z", "unstable-options",
+    "-Z", "inline-mir=yes",
+    "-Z", "dwarf-version=5",
+    "-Z", "debuginfo-compression=zlib",
+    "-Z", "cross-crate-inline-threshold=always",
+]
+
+[profile.bench]
+inherits = "release"
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O4']
 
 [dependencies]
 criterion = { version = "0.8.2", default-features = false }

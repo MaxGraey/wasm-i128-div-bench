@@ -1,5 +1,3 @@
-#![feature(funnel_shifts)]
-
 use criterion::Criterion;
 
 mod utils;

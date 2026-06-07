@@ -57,21 +57,30 @@ fn sub128(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
     (hi, lo)
 }
 
-/* 128-bit shifts as funnel shifts over the limb pair, sh in 0..=63.
- * funnel_shl/funnel_shr map to llvm.fshl/fshr. The & 63 makes the
- * unchecked precondition (shift < 64) hold for any sh, so these stay
- * safe fns with no panic branch.
+/* 128-bit logical shifts over the (hi, lo) limb pair, n in 0..=63, as plain
+ * shifts (stable Rust, no funnel intrinsic). The "<< 1" preshift with "63 - n"
+ * zeroes the cross term at n == 0, where a bare "hi << (64 - n)" would wrap to
+ * "hi << 0" since AArch64/wasm mask the shift count mod 64:
  *
- * This is most efficient way. See: https://godbolt.org/z/doqvb9W4K
- * */
+ *   shr  lo' = (lo >> n) | ((hi << 1) << (63 - n))   -> (lo >> n) | (hi << (64-n)), = lo at n==0
+ *   shl  hi' = (hi << n) | ((lo >> 1) >> (63 - n))
+ *
+ * x86 folds each pair to shrd, ARM/wasm synthesize. See https://godbolt.org/z/Y44bfKedh */
 #[inline(always)]
-fn shl128(v: (u64, u64), amount: u32) -> (u64, u64) {
-    unsafe { (v.0.unchecked_funnel_shl(v.1, amount & 63), v.1 << amount) }
+fn shl128(v: (u64, u64), n: u32) -> (u64, u64) {
+    ((v.0 << n) | ((v.1 >> 1) >> (63 - n)), v.1 << n)
 }
 
 #[inline(always)]
-fn shr128(v: (u64, u64), amount: u32) -> (u64, u64) {
-    unsafe { (v.0 >> amount, v.0.unchecked_funnel_shr(v.1, amount & 63)) }
+fn shr128(v: (u64, u64), n: u32) -> (u64, u64) {
+    (v.0 >> n, (v.1 >> n) | ((v.0 << 1) << (63 - n)))
+}
+
+/* Top n bits of x, the part a left shift by n in 0..=63 carries out above the
+ * limb pair (0 at n == 0). Companion to shl128's dropped high word. */
+#[inline(always)]
+fn shl_ext(x: u64, n: u32) -> u64 {
+    (x >> 1) >> (63 - n)
 }
 
 #[inline]
@@ -218,7 +227,7 @@ fn core_udivrem128(x: (u64, u64), y: (u64, u64)) -> ((u64, u64), (u64, u64)) {
 
         let yn = y.1 << lsh;
         let (xn_hi, xn_lo) = shl128(x, lsh);
-        let xn_ex = unsafe { 0u64.unchecked_funnel_shl(x.0, lsh & 63) };
+        let xn_ex = shl_ext(x.0, lsh);
 
         let v        = reciprocal_2by1(yn);
         let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), yn, v);
@@ -247,7 +256,7 @@ fn core_udivrem128(x: (u64, u64), y: (u64, u64)) -> ((u64, u64), (u64, u64)) {
 
     let d = shl128(y, lsh);
     let (xn_hi, xn_lo) = shl128(x, lsh);
-    let xn_ex = unsafe { 0u64.unchecked_funnel_shl(x.0, lsh & 63) };
+    let xn_ex = shl_ext(x.0, lsh);
 
     let v = reciprocal_3by2(d);
     let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, d, v);
@@ -370,7 +379,7 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
         // Varying u128 dividend, normalized into 192 bits by the same lsh.
         let num = (x.0 ^ (i as u64), x.1);
         let (xn_hi, xn_lo) = shl128(num, lsh);
-        let xn_ex = unsafe { 0u64.unchecked_funnel_shl(num.0, lsh & 63) };
+        let xn_ex = shl_ext(num.0, lsh);
 
         let (q, rn) = udivrem_3by2(xn_ex, xn_hi, xn_lo, dn, v);
         let r = shr128(rn, lsh);
