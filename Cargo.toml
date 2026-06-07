@@ -1,5 +1,5 @@
 [package]
-name = "wasm-i128-inv-div-bench"
+name = "wasm-i128-div-bench"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -7,3 +7,7 @@ publish = false
 [dependencies]
 criterion = { version = "0.8.2", default-features = false }
 wasm-bindgen = { version = "0.2.122", optional = true }
+
+[dev-dependencies]
+getrandom = "0.4.2"
+rand = "0.10.1"

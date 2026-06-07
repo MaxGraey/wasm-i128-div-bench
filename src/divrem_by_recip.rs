@@ -386,29 +386,17 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
-    /* Deterministic xorshift so tests stay reproducible without a dep. */
-    struct Rng(u64);
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            let mut x = self.0;
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            self.0 = x;
-            x
-        }
-        fn u128(&mut self) -> u128 {
-            ((self.next() as u128) << 64) | self.next() as u128
-        }
-    }
+    /* Golden-ratio seed so the random cases stay reproducible. */
+    const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
     #[test]
     fn umul_matches_native() {
-        let mut rng = Rng(0x1234_5678_9abc_def1);
+        let mut rng = SmallRng::seed_from_u64(SEED);
         for _ in 0..100_000 {
-            let a = rng.next();
-            let b = rng.next();
+            let a: u64 = rng.random();
+            let b: u64 = rng.random();
             let got = mul128(a, b);
             let want = (a as u128) * (b as u128);
             assert_eq!(((got.0 as u128) << 64) | got.1 as u128, want, "{a} * {b}");
@@ -467,7 +455,7 @@ mod tests {
             acc
         };
 
-        let mut rng = Rng(0x1357_9bdf_2468_ace0);
+        let mut rng = SmallRng::seed_from_u64(SEED);
         let mut cases = vec![
             ((0u64, 0u64), 0usize),
             ((0, 0), 1),
@@ -477,7 +465,8 @@ mod tests {
             ((0, 1), 10),
         ];
         for _ in 0..2_000 {
-            cases.push(((rng.next(), rng.next()), (rng.next() % 300) as usize));
+            let x = (rng.random::<u64>(), rng.random::<u64>());
+            cases.push((x, rng.random_range(0..300usize)));
         }
 
         for &(x, iters) in &cases {
@@ -491,13 +480,13 @@ mod tests {
 
     #[test]
     fn unsigned_random() {
-        let mut rng = Rng(0xdead_beef_cafe_babe);
+        let mut rng = SmallRng::seed_from_u64(SEED);
         for _ in 0..500_000 {
-            let x = rng.u128();
-            let mut y = rng.u128();
+            let x: u128 = rng.random();
+            let mut y: u128 = rng.random();
             // Bias toward small divisors too, exercising the 2-by-1 path.
-            if rng.next() & 1 == 0 {
-                y = (rng.next() >> (rng.next() % 64)) as u128;
+            if rng.random::<u64>() & 1 == 0 {
+                y = (rng.random::<u64>() >> (rng.random::<u64>() % 64)) as u128;
             }
             if y == 0 {
                 continue;
@@ -532,10 +521,10 @@ mod tests {
 
     #[test]
     fn signed_random() {
-        let mut rng = Rng(0x0bad_f00d_1337_c0de);
+        let mut rng = SmallRng::seed_from_u64(SEED);
         for _ in 0..500_000 {
-            let x = rng.u128() as i128;
-            let y = rng.u128() as i128;
+            let x = rng.random::<u128>() as i128;
+            let y = rng.random::<u128>() as i128;
             if y == 0 {
                 continue;
             }
