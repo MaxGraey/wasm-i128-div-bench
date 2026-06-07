@@ -27,12 +27,12 @@ const RECIPROCAL_TABLE: [u16; 256] = {
 
 
 #[inline(always)]
-fn split128(x: u128) -> (u64, u64) {
+fn split(x: u128) -> (u64, u64) {
     ((x >> 64) as u64, x as u64)
 }
 
 #[inline(always)]
-fn join128(v: (u64, u64)) -> u128 {
+fn join(v: (u64, u64)) -> u128 {
     ((v.0 as u128) << 64) | (v.1 as u128)
 }
 
@@ -56,9 +56,21 @@ fn sub128(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
     (hi, lo)
 }
 
+/* 128-bit shifts as funnel shifts over the limb pair, sh in 0..=63.
+ * funnel_shl/funnel_shr map to llvm.fshl/fshr. The & 63 makes the
+ * unchecked precondition (shift < 64) hold for any sh, so these stay
+ * safe fns with no panic branch.
+ *
+ * This is most efficient way. See: https://godbolt.org/z/doqvb9W4K
+ * */
 #[inline(always)]
-fn shr128(v: (u64, u64), sh: u32) -> (u64, u64) {
-    (v.0 >> sh, (v.1 >> sh) | (v.0 << (64 - sh)))
+fn shl128(v: (u64, u64), amount: u32) -> (u64, u64) {
+    unsafe { (v.0.unchecked_funnel_shl(v.1, amount & 63), v.1 << amount) }
+}
+
+#[inline(always)]
+fn shr128(v: (u64, u64), amount: u32) -> (u64, u64) {
+    unsafe { (v.0 >> amount, v.0.unchecked_funnel_shr(v.1, amount & 63)) }
 }
 
 #[inline]
@@ -203,17 +215,10 @@ fn core_udivrem128(x: (u64, u64), y: (u64, u64)) -> ((u64, u64), (u64, u64)) {
     if y.0 == 0 {
         // Divisor fits in 64 bits, normalize and run two 2-by-1 steps.
         let lsh = y.1.leading_zeros();
-        let rsh = (64 - lsh) & 63;
-        let rsh_mask = (if lsh == 0 {
-            1u64
-        } else {
-            0u64
-        }).wrapping_sub(1);
 
-        let yn    = y.1 << lsh;
-        let xn_lo = x.1 << lsh;
-        let xn_hi = (x.0 << lsh) | ((x.1 >> rsh) & rsh_mask);
-        let xn_ex = (x.0 >> rsh) & rsh_mask;
+        let yn = y.1 << lsh;
+        let (xn_hi, xn_lo) = shl128(x, lsh);
+        let xn_ex = unsafe { 0u64.unchecked_funnel_shl(x.0, lsh & 63) };
 
         let v        = reciprocal_2by1(yn);
         let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), yn, v);
@@ -240,15 +245,10 @@ fn core_udivrem128(x: (u64, u64), y: (u64, u64)) -> ((u64, u64), (u64, u64)) {
         return ((0, q as u64), rem);
     }
 
-    let rsh = 64 - lsh;
+    let d = shl128(y, lsh);
+    let (xn_hi, xn_lo) = shl128(x, lsh);
+    let xn_ex = unsafe { 0u64.unchecked_funnel_shl(x.0, lsh & 63) };
 
-    let yn_lo = y.1 << lsh;
-    let yn_hi = (y.0 << lsh) | (y.1 >> rsh);
-    let xn_lo = x.1 << lsh;
-    let xn_hi = (x.0 << lsh) | (x.1 >> rsh);
-    let xn_ex = x.0 >> rsh;
-
-    let d = (yn_hi, yn_lo);
     let v = reciprocal_3by2(d);
     let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, d, v);
 
@@ -275,12 +275,12 @@ fn remainder_by_zero() -> ! {
 #[inline]
 fn core_sdivrem128(x: i128, y: i128) -> (i128, i128) {
     let (q, r) = core_udivrem128(
-        split128(x.unsigned_abs()),
-        split128(y.unsigned_abs()),
+        split(x.unsigned_abs()),
+        split(y.unsigned_abs()),
     );
 
-    let q = join128(q) as i128;
-    let r = join128(r) as i128;
+    let q = join(q) as i128;
+    let r = join(r) as i128;
 
     let q = if (x < 0) != (y < 0) {
         q.wrapping_neg()
@@ -304,8 +304,8 @@ pub fn udivrem128(x: u128, y: u128) -> (u128, u128) {
         divide_by_zero();
     }
 
-    let (q, r) = core_udivrem128(split128(x), split128(y));
-    (join128(q), join128(r))
+    let (q, r) = core_udivrem128(split(x), split(y));
+    (join(q), join(r))
 }
 
 pub fn udiv128(x: u128, y: u128) -> u128 {
@@ -313,7 +313,7 @@ pub fn udiv128(x: u128, y: u128) -> u128 {
         divide_by_zero();
     }
 
-    join128(core_udivrem128(split128(x), split128(y)).0)
+    join(core_udivrem128(split(x), split(y)).0)
 }
 
 pub fn urem128(x: u128, y: u128) -> u128 {
@@ -321,7 +321,7 @@ pub fn urem128(x: u128, y: u128) -> u128 {
         remainder_by_zero();
     }
 
-    join128(core_udivrem128(split128(x), split128(y)).1)
+    join(core_udivrem128(split(x), split(y)).1)
 }
 
 pub fn sdivrem128(x: i128, y: i128) -> (i128, i128) {
@@ -378,6 +378,42 @@ mod tests {
             let want = (a as u128) * (b as u128);
             assert_eq!(((got.0 as u128) << 64) | got.1 as u128, want, "{a} * {b}");
         }
+    }
+
+    #[test]
+    fn check_shl128() {
+        // sh == 0 is identity
+        assert_eq!(shl128((1, 2), 0), (1, 2));
+        assert_eq!(shl128((u64::MAX, u64::MAX), 0), (u64::MAX, u64::MAX));
+
+        // low-limb top bit crosses into the high limb
+        assert_eq!(shl128((0, 0x8000_0000_0000_0000), 1), (1, 0));
+        assert_eq!(shl128((1, 0), 1), (2, 0));
+
+        // sh == 63, the maximal in-limb shift
+        assert_eq!(shl128((0, 1), 63), (0, 0x8000_0000_0000_0000));
+        assert_eq!(shl128((0, 2), 63), (1, 0));
+
+        // all ones, partial cross
+        assert_eq!(shl128((u64::MAX, u64::MAX), 4), (u64::MAX, 0xffff_ffff_ffff_fff0));
+    }
+
+    #[test]
+    fn check_shr128() {
+        // sh == 0 is identity
+        assert_eq!(shr128((1, 2), 0), (1, 2));
+        assert_eq!(shr128((u64::MAX, u64::MAX), 0), (u64::MAX, u64::MAX));
+
+        // high-limb low bit crosses into the low limb
+        assert_eq!(shr128((1, 0), 1), (0, 0x8000_0000_0000_0000));
+        assert_eq!(shr128((0, 2), 1), (0, 1));
+
+        // sh == 63, the maximal in-limb shift
+        assert_eq!(shr128((1, 0), 63), (0, 2));
+        assert_eq!(shr128((0x8000_0000_0000_0000, 0), 63), (1, 0));
+
+        // all ones, partial cross
+        assert_eq!(shr128((u64::MAX, u64::MAX), 4), (0x0fff_ffff_ffff_ffff, u64::MAX));
     }
 
     #[test]
@@ -442,7 +478,18 @@ mod tests {
 
     #[test]
     fn signed_edges() {
-        let vals = [0i128, 1, -1, 2, -2, i128::MAX, i128::MIN, i128::MIN + 1, i64::MAX as i128, i64::MIN as i128];
+        let vals = [
+            0i128,
+            1,
+            -1,
+            2,
+            2,
+            i128::MAX,
+            i128::MIN,
+            i128::MIN + 1,
+            i64::MAX as i128,
+            i64::MIN as i128
+        ];
         for &x in &vals {
             for &y in &vals {
                 if y == 0 || (x == i128::MIN && y == -1) {

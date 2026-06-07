@@ -1,3 +1,5 @@
+#![feature(funnel_shifts)]
+
 use criterion::Criterion;
 
 #[allow(dead_code)]
