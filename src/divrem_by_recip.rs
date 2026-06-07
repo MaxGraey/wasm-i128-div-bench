@@ -348,6 +348,41 @@ pub fn srem128(x: i128, y: i128) -> i128 {
     core_sdivrem128(x, y).1
 }
 
+/* Benchmark scaffold for the invariant-divisor pattern, and a faithful u128
+ * division. The divisor is fixed before the loop, so reciprocal_3by2 and the
+ * normalized divisor are computed once and only the per-step divide stays in the
+ * loop. Each iteration computes num / d and num % d for a varying u128 num,
+ * bit-identical to the native operators (see divrem_with_loop_invariant_divisor_matches_native).
+ * Results fold into acc with |= so the loop cannot be optimized away. */
+pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, u64) {
+    // Invariant divisor in [2^64, 2^127) - high limb nonzero with top bit clear,
+    // so the 3-by-2 path runs with a real normalization shift (lsh in 1..=63).
+    let d = ((x.0 & 0x7fff_ffff_ffff_ffff) | 1, x.1);
+
+    // Hoisted - reciprocal and normalized divisor are computed once.
+    let lsh = d.0.leading_zeros();
+    let dn = shl128(d, lsh);
+    let v = reciprocal_3by2(dn);
+
+    let mut acc = (0u64, 0u64);
+    let mut i = 0usize;
+    while i < iters {
+        // Varying u128 dividend, normalized into 192 bits by the same lsh.
+        let num = (x.0 ^ (i as u64), x.1);
+        let (xn_hi, xn_lo) = shl128(num, lsh);
+        let xn_ex = unsafe { 0u64.unchecked_funnel_shl(num.0, lsh & 63) };
+
+        let (q, rn) = udivrem_3by2(xn_ex, xn_hi, xn_lo, dn, v);
+        let r = shr128(rn, lsh);
+
+        acc.0 |= q;
+        acc.1 |= r.0 | r.1;
+        i += 1;
+    }
+
+    acc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,6 +449,44 @@ mod tests {
 
         // all ones, partial cross
         assert_eq!(shr128((u64::MAX, u64::MAX), 4), (0x0fff_ffff_ffff_ffff, u64::MAX));
+    }
+
+    #[test]
+    fn divrem_with_loop_invariant_divisor_matches_native() {
+        // Mirror the divisor and dividend the function derives, then divide
+        // natively, so a mismatch means the reciprocal path diverged.
+        let reference = |x: (u64, u64), iters: usize| -> (u64, u64) {
+            let d = join(((x.0 & 0x7fff_ffff_ffff_ffff) | 1, x.1));
+            let mut acc = (0u64, 0u64);
+            for i in 0..iters {
+                let num = join((x.0 ^ (i as u64), x.1));
+                acc.0 |= (num / d) as u64;
+                let r = num % d;
+                acc.1 |= (r as u64) | ((r >> 64) as u64);
+            }
+            acc
+        };
+
+        let mut rng = Rng(0x1357_9bdf_2468_ace0);
+        let mut cases = vec![
+            ((0u64, 0u64), 0usize),
+            ((0, 0), 1),
+            ((u64::MAX, u64::MAX), 1),
+            ((u64::MAX, u64::MAX), 64),
+            ((1, 0), 10),
+            ((0, 1), 10),
+        ];
+        for _ in 0..2_000 {
+            cases.push(((rng.next(), rng.next()), (rng.next() % 300) as usize));
+        }
+
+        for &(x, iters) in &cases {
+            assert_eq!(
+                divrem_with_loop_invariant_divisor(x, iters),
+                reference(x, iters),
+                "x={x:?} iters={iters}",
+            );
+        }
     }
 
     #[test]
