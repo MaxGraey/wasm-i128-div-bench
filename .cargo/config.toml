@@ -1,0 +1,30 @@
+# auto-cleanup cargo cache
+[unstable]
+gc = true
+
+# utilize parallel front-end compilation
+[build]
+rustflags = ["-Z", "threads=8"]
+
+# any x86-64 bit architecture
+[target.'cfg(target_arch = "x86_64")']
+rustflags = [
+  "-C",
+  "target-feature=+sse4.2,+avx,+bmi1,+fma,+movbe,+popcnt,+lzcnt,+xsave,+xsavec,+xsaveopt",
+]
+
+# any ARM architecture
+[target.'cfg(any(target_arch = "arm", target_arch = "aarch64"))']
+rustflags = ["-C", "target-feature=+neon"]
+
+# Apple >= M1 architectures
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "target-feature=+neon,+lse"]
+
+# any PowerPC 64-bit architecture
+[target.'cfg(target_arch = "powerpc64")']
+rustflags = ["-C", "target-feature=+altivec"]
+
+# WebAssembly architecture
+[target.'cfg(target_arch = "wasm32")']
+rustflags = ["-C", "target-feature=+bulk-memory,+multivalue,+reference-types"]
