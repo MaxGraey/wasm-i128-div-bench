@@ -41,7 +41,7 @@ for be in "${BACKENDS[@]}"; do
 done
 
 printf "\n-> Prepare report <-\n\n"
-python3 scripts/report.py >/dev/null 2>&1
+python3 scripts/report.py ${feat_args[@]+"${feat_args[@]}"} >/dev/null 2>&1
 
 elapsed=$(( $(date +%s) - start ))
 printf "\nDone in %dm%02ds.\nReport -> %s/report/RESULTS.md\n" \
