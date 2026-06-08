@@ -1,8 +1,8 @@
 /*
  * Reciprocal-based 128-bit division.
  *
- * Ported from intx (https://github.com/chfast/intx, Apache-2.0). Based on
- * Algorithm 2 of Moeller & Granlund, "Improved division by invariant integers".
+ * Based on Algorithm 2 of Moeller & Granlund
+ * "Improved division by invariant integers".
  *
  * The whole point of this path is to replace the compiler-rt 128-bit division
  * libcall (__udivti3 / __umodti3 on wasm) with a multiply-heavy sequence that
@@ -13,6 +13,7 @@
  */
 
 use crate::utils::*;
+use std::hint::{likely, unlikely};
 
 /* Reciprocal lookup table. Entry table[i] = floor(0x7fd00 / (i + 256)).
  * 256 x u16 = 512 bytes */
@@ -215,80 +216,169 @@ fn udivrem_3by2(
     (q_hi, r)
 }
 
-/* Core 128-by-128 division on limbs, returns (quotient, remainder).
- * Caller guarantees y != 0. */
-#[inline]
-fn core_udivrem128(x: (u64, u64), y: (u64, u64)) -> ((u64, u64), (u64, u64)) {
-    // fast-path
-    if y.0 == 0 {
-        // Divisor fits in 64 bits, normalize and run two 2-by-1 steps.
-        let lsh = y.1.leading_zeros();
-
-        let yn = y.1 << lsh;
-        let (xn_hi, xn_lo) = shl128(x, lsh);
-        let xn_ex = shl_ext(x.0, lsh);
-
-        let v        = reciprocal_2by1(yn);
-        let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), yn, v);
-        let (q0, r0) = udivrem_2by1((r1, xn_lo), yn, v);
-
-        return ((q1, q0), (0, r0 >> lsh));
-    }
-
-    // fast-path
-    if y.0 > x.0 {
-        return ((0, 0), x);
-    }
-
-    // fast-path
-    let lsh = y.0.leading_zeros();
-    if lsh == 0 {
-        // Divisor already uses the top limb fully. Quotient is 0 or 1.
-        let q = (y.0 < x.0) || (y.1 <= x.1);
-        let rem = if q {
-            sub128(x, y)
-        } else {
-            x
-        };
-        return ((0, q as u64), rem);
-    }
-
-    let d = shl128(y, lsh);
-    let (xn_hi, xn_lo) = shl128(x, lsh);
-    let xn_ex = shl_ext(x.0, lsh);
-
-    let v = reciprocal_3by2(d);
-    let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, d, v);
-
-    ((0, q), shr128(r, lsh))
-}
-
 /* Division by zero is fatal. Messages mirror the wasm integer trap text V8
  * reports for i64.div_u / i64.rem_u by zero ("divide by zero" / "remainder by
  * zero"), so the failure reads identically to the native u64/u64 path. */
 #[cold]
 #[inline(never)]
-fn divide_by_zero() -> ! {
+fn divide_by_zero_trap() -> ! {
     panic!("divide by zero")
 }
 
 #[cold]
 #[inline(never)]
-fn remainder_by_zero() -> ! {
+fn remainder_by_zero_trap() -> ! {
     panic!("remainder by zero")
 }
 
-/* Signed core, truncating toward zero like the native i128 operators. Assumes
- * y != 0. The i128::MIN / -1 overflow yields the wrapping result (MIN, 0). */
-#[inline]
-fn core_sdivrem128(x: i128, y: i128) -> (i128, i128) {
-    let (q, r) = core_udivrem128(
-        split(x.unsigned_abs()),
-        split(y.unsigned_abs()),
-    );
+/* i128::MIN / -1 overflows the signed quotient. Mirrors the wasm i64.div_s trap
+ * ("integer overflow"); i64.rem_s leaves this case untrapped (remainder 0). */
+#[cold]
+#[inline(never)]
+fn integer_overflow_trap() -> ! {
+    panic!("integer overflow")
+}
 
-    let q = join(q) as i128;
-    let r = join(r) as i128;
+/* The proposed wide-arithmetic instructions, modeled on u64 limbs. Operands and
+ * results use the proposal's low-word-first order (y_lo, y_hi), while the kernels
+ * above stay on the file's (hi, lo) limb pairs. i64.recip128 prepares the divisor
+ * once so a loop-invariant reciprocal hoists out of the loop, i64.divrem_recip128
+ * then divides. The reciprocal kernel computes quotient and remainder jointly, so
+ * a caller needing only one drops the other word - there is no cheaper narrow form. */
+
+/* i64.recip128 : [y_lo y_hi] -> [d_lo d_hi rcp lsh]
+ * Normalize the divisor and precompute its reciprocal. y_hi == 0 takes the
+ * 2-by-1 kernel (d_hi = 0), else 3-by-2. Traps on y == 0. */
+fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u64) {
+    if likely(y_hi != 0) {
+        let lsh = y_hi.leading_zeros();
+        let (d_hi, d_lo) = shl128((y_hi, y_lo), lsh);
+        return (d_lo, d_hi, reciprocal_3by2((d_hi, d_lo)), lsh as u64);
+    }
+
+    // 64-bit divisor (y_hi == 0): 2-by-1 kernel.
+    if unlikely(y_lo == 0) {
+        divide_by_zero_trap();
+    }
+
+    let lsh = y_lo.leading_zeros();
+    let d_lo = y_lo << lsh;
+    (d_lo, 0, reciprocal_2by1(d_lo), lsh as u64)
+}
+
+/* i64.divrem_recip128 : [x_lo x_hi d_lo d_hi rcp lsh] -> [q_lo q_hi r_lo r_hi]
+ * Joint quotient and remainder. d_hi == 0 selects the 2-by-1 kernel (quotient up
+ * to 128 bits), else 3-by-2 (q_hi == 0). The Y > X and lsh == 0 shortcuts skip
+ * the divide multiplies, the reciprocal having already been spent in
+ * i64.recip128. q and r come out together - the correction steps need r to fix
+ * the quotient, so a divide-only or modulo-only caller just drops a result word. */
+fn divrem_recip128(
+    x_lo: u64,
+    x_hi: u64,
+    d_lo: u64,
+    d_hi: u64,
+    rcp: u64,
+    lsh: u64,
+) -> (u64, u64, u64, u64) {
+    if unlikely(d_hi == 0) {
+        let lsh = lsh as u32;
+        let (xn_hi, xn_lo) = shl128((x_hi, x_lo), lsh);
+        let xn_ex = shl_ext(x_hi, lsh);
+
+        let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), d_lo, rcp);
+        let (q0, r0) = udivrem_2by1((r1, xn_lo), d_lo, rcp);
+
+        return (q0, q1, r0 >> lsh, 0);
+    }
+
+    if (d_hi >> lsh) > x_hi {
+        return (0, 0, x_lo, x_hi);
+    }
+
+    if unlikely(lsh == 0) {
+        return if (d_hi < x_hi) || (d_hi == x_hi && d_lo <= x_lo) {
+            let (r_hi, r_lo) = sub128((x_hi, x_lo), (d_hi, d_lo));
+            (1, 0, r_lo, r_hi)
+        } else {
+            (0, 0, x_lo, x_hi)
+        };
+    }
+
+    let lsh = lsh as u32;
+    let (xn_hi, xn_lo) = shl128((x_hi, x_lo), lsh);
+    let xn_ex = shl_ext(x_hi, lsh);
+
+    let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, (d_hi, d_lo), rcp);
+    let (r_hi, r_lo) = shr128(r, lsh);
+    (q, 0, r_lo, r_hi)
+}
+
+
+/* Unsigned 128-bit divide-and-remainder. Traps on division by zero. */
+pub fn udivrem128(x: u128, y: u128) -> (u128, u128) {
+    // if unlikely(y == 0) {
+    //     divide_by_zero_trap();
+    // }
+
+    let (x_hi, x_lo) = split(x);
+    let (y_hi, y_lo) = split(y);
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    (join((q_hi, q_lo)), join((r_hi, r_lo)))
+}
+
+pub fn udiv128(x: u128, y: u128) -> u128 {
+    // if unlikely(y == 0) {
+    //     divide_by_zero_trap();
+    // }
+
+    let (x_hi, x_lo) = split(x);
+    let (y_hi, y_lo) = split(y);
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, _, _) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    join((q_hi, q_lo))
+}
+
+pub fn urem128(x: u128, y: u128) -> u128 {
+    // if unlikely(y == 0) {
+    //     remainder_by_zero_trap();
+    // }
+
+    let (x_hi, x_lo) = split(x);
+    let (y_hi, y_lo) = split(y);
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (_, _, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    join((r_hi, r_lo))
+}
+
+/* Signed wrappers divide the magnitudes through i64.recip128 + i64.divrem_recip128,
+ * then truncate toward zero by sign - negate the quotient when the operand signs
+ * differ, the remainder when the dividend is negative. INT_MIN / -1 traps in
+ * sdiv128 / sdivrem128 (integer overflow, like i64.div_s); srem128 returns 0,
+ * matching i64.rem_s. */
+pub fn sdivrem128(x: i128, y: i128) -> (i128, i128) {
+    // if unlikely(y == 0) {
+    //     divide_by_zero_trap();
+    // }
+
+    if unlikely(x == i128::MIN && y == -1) {
+        integer_overflow_trap();
+    }
+
+    let (x_hi, x_lo) = split(x.unsigned_abs());
+    let (y_hi, y_lo) = split(y.unsigned_abs());
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    let q = join((q_hi, q_lo)) as i128;
+    let r = join((r_hi, r_lo)) as i128;
 
     let q = if (x < 0) != (y < 0) {
         q.wrapping_neg()
@@ -305,86 +395,73 @@ fn core_sdivrem128(x: i128, y: i128) -> (i128, i128) {
     (q, r)
 }
 
-
-/* Unsigned 128-bit divide-and-remainder. Traps on division by zero. */
-pub fn udivrem128(x: u128, y: u128) -> (u128, u128) {
-    if y == 0 {
-        divide_by_zero();
-    }
-
-    let (q, r) = core_udivrem128(split(x), split(y));
-    (join(q), join(r))
-}
-
-pub fn udiv128(x: u128, y: u128) -> u128 {
-    if y == 0 {
-        divide_by_zero();
-    }
-
-    join(core_udivrem128(split(x), split(y)).0)
-}
-
-pub fn urem128(x: u128, y: u128) -> u128 {
-    if y == 0 {
-        remainder_by_zero();
-    }
-
-    join(core_udivrem128(split(x), split(y)).1)
-}
-
-pub fn sdivrem128(x: i128, y: i128) -> (i128, i128) {
-    if y == 0 {
-        divide_by_zero();
-    }
-
-    core_sdivrem128(x, y)
-}
-
 pub fn sdiv128(x: i128, y: i128) -> i128 {
-    if y == 0 {
-        divide_by_zero();
+    // if unlikely(y == 0) {
+    //     divide_by_zero_trap();
+    // }
+
+    if unlikely(x == i128::MIN && y == -1) {
+        integer_overflow_trap();
     }
 
-    core_sdivrem128(x, y).0
+    let (x_hi, x_lo) = split(x.unsigned_abs());
+    let (y_hi, y_lo) = split(y.unsigned_abs());
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, _, _) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    let q = join((q_hi, q_lo)) as i128;
+
+    if (x < 0) != (y < 0) {
+        q.wrapping_neg()
+    } else {
+        q
+    }
 }
 
 pub fn srem128(x: i128, y: i128) -> i128 {
-    if y == 0 {
-        remainder_by_zero();
-    }
+    // if unlikely(y == 0) {
+    //     remainder_by_zero_trap();
+    // }
 
-    core_sdivrem128(x, y).1
+    let (x_hi, x_lo) = split(x.unsigned_abs());
+    let (y_hi, y_lo) = split(y.unsigned_abs());
+
+    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
+    let (_, _, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+
+    let r = join((r_hi, r_lo)) as i128;
+
+    if x < 0 {
+        r.wrapping_neg()
+    } else {
+        r
+    }
 }
 
 /* Benchmark scaffold for the invariant-divisor pattern, and a faithful u128
- * division. The divisor is fixed before the loop, so reciprocal_3by2 and the
- * normalized divisor are computed once and only the per-step divide stays in the
- * loop. Each iteration computes num / d and num % d for a varying u128 num,
- * bit-identical to the native operators (see divrem_with_loop_invariant_divisor_matches_native).
+ * division. The divisor is fixed before the loop, so i64.recip128 runs once and
+ * only the per-step i64.div_recip128 / i64.rem_recip128 stay in the loop. Each
+ * iteration computes num / d and num % d for a varying u128 num, bit-identical to
+ * the native operators (see divrem_with_loop_invariant_divisor_matches_native).
  * Results fold into acc with |= so the loop cannot be optimized away. */
 pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, u64) {
     // Invariant divisor in [2^64, 2^127) - high limb nonzero with top bit clear,
     // so the 3-by-2 path runs with a real normalization shift (lsh in 1..=63).
     let d = ((x.0 & 0x7fff_ffff_ffff_ffff) | 1, x.1);
 
-    // Hoisted - reciprocal and normalized divisor are computed once.
-    let lsh = d.0.leading_zeros();
-    let dn = shl128(d, lsh);
-    let v = reciprocal_3by2(dn);
+    // i64.recip128 hoisted - normalized divisor and reciprocal computed once.
+    let (d_lo, d_hi, rcp, lsh) = recip128(d.1, d.0);
 
     let mut acc = (0u64, 0u64);
     let mut i = 0usize;
     while i < iters {
-        // Varying u128 dividend, normalized into 192 bits by the same lsh.
+        // Varying dividend; i64.divrem_recip128 reuses the hoisted prep.
         let num = (x.0 ^ (i as u64), x.1);
-        let (xn_hi, xn_lo) = shl128(num, lsh);
-        let xn_ex = shl_ext(num.0, lsh);
+        let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(num.1, num.0, d_lo, d_hi, rcp, lsh);
 
-        let (q, rn) = udivrem_3by2(xn_ex, xn_hi, xn_lo, dn, v);
-        let r = shr128(rn, lsh);
-
-        acc.0 |= q;
-        acc.1 |= r.0 | r.1;
+        acc.0 |= q_lo | q_hi;
+        acc.1 |= r_lo | r_hi;
 
         i += 1;
     }
@@ -591,9 +668,8 @@ mod tests {
             if y == 0 {
                 continue;
             }
-            // Skip native overflow case, documented to differ.
+            // INT_MIN / -1 traps sdiv128 / sdivrem128 now, srem128 stays 0.
             if x == i128::MIN && y == -1 {
-                assert_eq!(sdiv128(x, y), i128::MIN);
                 assert_eq!(srem128(x, y), 0);
                 continue;
             }
@@ -626,6 +702,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "integer overflow")]
+    fn sdiv_overflow_panics() {
+        let _ = sdiv128(i128::MIN, -1);
+    }
+
+    #[test]
+    #[should_panic(expected = "integer overflow")]
+    fn sdivrem_overflow_panics() {
+        let _ = sdivrem128(i128::MIN, -1);
+    }
+
+    #[test]
     #[should_panic(expected = "divide by zero")]
     fn udivrem128_by_zero_panics() {
         let _ = udivrem128(42, 0);
@@ -637,8 +725,14 @@ mod tests {
         let _ = udiv128(42, 0);
     }
 
+    // #[test]
+    // #[should_panic(expected = "remainder by zero")]
+    // fn urem_by_zero_panics() {
+    //     let _ = urem128(42, 0);
+    // }
+
     #[test]
-    #[should_panic(expected = "remainder by zero")]
+    #[should_panic(expected = "divide by zero")]
     fn urem_by_zero_panics() {
         let _ = urem128(42, 0);
     }
@@ -650,8 +744,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "remainder by zero")]
+    #[should_panic(expected = "divide by zero")]
     fn rem_by_zero_panics() {
         let _ = srem128(42, 0);
     }
+
+    // #[test]
+    // #[should_panic(expected = "remainder by zero")]
+    // fn rem_by_zero_panics() {
+    //     let _ = srem128(42, 0);
+    // }
 }

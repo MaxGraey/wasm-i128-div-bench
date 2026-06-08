@@ -1,0 +1,8 @@
+{
+  "name": "wasm-i128-div-bench",
+  "private": true,
+  "scripts": {
+    "bench:native": "cargo run --release -- --bench",
+    "bench:node": "scripts/bench-node-wasi.sh"
+  }
+}

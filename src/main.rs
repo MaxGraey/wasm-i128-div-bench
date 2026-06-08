@@ -1,3 +1,5 @@
+#![feature(likely_unlikely)]
+
 use criterion::Criterion;
 
 mod utils;
