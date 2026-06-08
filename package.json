@@ -2,8 +2,10 @@
   "name": "wasm-i128-div-bench",
   "private": true,
   "scripts": {
+    "bench": "scripts/bench.sh",
     "bench:native": "cargo run --release -- --bench",
     "bench:node": "scripts/bench-node-wasi.sh",
-    "bench:wasmtime": "scripts/bench-wasmtime.sh"
+    "bench:wasmtime": "scripts/bench-wasmtime.sh",
+    "report": "python3 scripts/report.py"
   }
 }

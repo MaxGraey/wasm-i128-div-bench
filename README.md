@@ -11,30 +11,17 @@ operators (`__udivti3` / `__umodti3` on wasm). Both run through criterion.
 
 ## Run the benchmarks
 
-Native:
+Aggregate the runs into [report/RESULTS.md](report/RESULTS.md) (environment plus
+per-runtime and cross-runtime tables):
 
 ```bash
-npm run bench:native
+npm run report
 ```
 
-WebAssembly under Node (builds to `wasm32-wasip1`, runs the same criterion
-benchmark via `node:wasi`):
+or
 
 ```bash
-npm run bench:node
-```
-
-The same wasm under wasmtime:
-
-```bash
-npm run bench:wasmtime
-```
-
-Filter by name or forward any criterion flag with `--`:
-
-```bash
-npm run bench:node -- udiv128
-npm run bench:wasmtime -- --sample-size 50 reciprocal
+scripts/bench.sh
 ```
 
 ## Test
