@@ -84,10 +84,6 @@ fn shl128_wide(v: (u64, u64), n: u32) -> (u64, u64, u64) {
     ((v.0 >> 1) >> (63 - n), hi, lo)
 }
 
-/* With `native-wide-mul` the 64x64 -> 128 product is a single native u128
- * multiply (i64.mul_wide_u in the wide-arithmetic proposal), to benchmark a
- * native wide multiply against the u64-limb synthesis on each backend. Default
- * off keeps the path on u64 limbs - see the file header. */
 #[cfg(feature = "native-wide-mul")]
 #[inline(always)]
 fn mul128(a: u64, b: u64) -> (u64, u64) {
