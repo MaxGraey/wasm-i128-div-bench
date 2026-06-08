@@ -23,13 +23,13 @@ is faster. `builtin` is the native `u128` / `i128` operators.
 
 | bench | builtin | reciprocal | rel |
 | --- | ---: | ---: | ---: |
-| `udivrem128` | 28.14 ns | 26.45 ns | -6.0% |
-| `udiv128` | 27.40 ns | 26.41 ns | -3.6% |
-| `urem128` | 27.42 ns | 26.79 ns | -2.3% |
-| `sdivrem128` | 32.95 ns | 30.42 ns | -7.7% |
-| `sdiv128` | 32.81 ns | 30.46 ns | -7.2% |
-| `srem128` | 32.50 ns | 29.39 ns | -9.6% |
-| `divrem_loop_invariant` | 134.57 µs | 40.25 µs | -70.1% |
+| `udivrem128` | 28.54 ns | 27.04 ns | -5.3% |
+| `udiv128` | 28.41 ns | 26.47 ns | -6.8% |
+| `urem128` | 29.06 ns | 26.74 ns | -8.0% |
+| `sdivrem128` | 34.48 ns | 31.18 ns | -9.6% |
+| `sdiv128` | 32.97 ns | 31.54 ns | -4.3% |
+| `srem128` | 32.86 ns | 29.13 ns | -11.3% |
+| `divrem_loop_invariant` | 136.99 µs | 40.55 µs | -70.4% |
 
 ### Node (V8)
 
@@ -47,13 +47,13 @@ is faster. `builtin` is the native `u128` / `i128` operators.
 
 | bench | builtin | reciprocal | rel |
 | --- | ---: | ---: | ---: |
-| `udivrem128` | 38.27 ns | 44.79 ns | +17.0% |
-| `udiv128` | 32.88 ns | 43.14 ns | +31.2% |
-| `urem128` | 32.70 ns | 44.24 ns | +35.3% |
-| `sdivrem128` | 41.77 ns | 48.11 ns | +15.2% |
-| `sdiv128` | 36.83 ns | 47.18 ns | +28.1% |
-| `srem128` | 36.46 ns | 44.98 ns | +23.4% |
-| `divrem_loop_invariant` | 78.56 µs | 56.88 µs | -27.6% |
+| `udivrem128` | 38.76 ns | 44.77 ns | +15.5% |
+| `udiv128` | 32.04 ns | 44.51 ns | +38.9% |
+| `urem128` | 32.45 ns | 43.42 ns | +33.8% |
+| `sdivrem128` | 40.83 ns | 47.47 ns | +16.3% |
+| `sdiv128` | 35.33 ns | 45.85 ns | +29.8% |
+| `srem128` | 36.21 ns | 44.94 ns | +24.1% |
+| `divrem_loop_invariant` | 80.33 µs | 57.66 µs | -28.2% |
 
 ## Cross-runtime: wasm cost vs native
 
@@ -62,11 +62,11 @@ slower than running native.
 
 | bench | recip: node | recip: wasmtime | builtin: node | builtin: wasmtime |
 | --- | ---: | ---: | ---: | ---: |
-| `udivrem128` | +50.3% | +69.3% | +23.8% | +36.0% |
-| `udiv128` | +45.1% | +63.3% | +9.6% | +20.0% |
-| `urem128` | +42.7% | +65.2% | +10.7% | +19.3% |
-| `sdivrem128` | +41.2% | +58.1% | +12.1% | +26.8% |
-| `sdiv128` | +34.2% | +54.9% | -0.3% | +12.3% |
-| `srem128` | +38.5% | +53.0% | +0.9% | +12.2% |
-| `divrem_loop_invariant` | +15.7% | +41.3% | -53.2% | -41.6% |
+| `udivrem128` | +47.1% | +65.6% | +22.1% | +35.8% |
+| `udiv128` | +44.8% | +68.1% | +5.7% | +12.8% |
+| `urem128` | +43.0% | +62.4% | +4.5% | +11.7% |
+| `sdivrem128` | +37.8% | +52.2% | +7.1% | +18.4% |
+| `sdiv128` | +29.6% | +45.4% | -0.8% | +7.1% |
+| `srem128` | +39.7% | +54.3% | -0.2% | +10.2% |
+| `divrem_loop_invariant` | +14.8% | +42.2% | -54.0% | -41.4% |
 

@@ -1,6 +1,7 @@
 #![feature(likely_unlikely)]
 
 use criterion::Criterion;
+use std::time::Duration;
 
 mod utils;
 
@@ -32,8 +33,15 @@ fn bench_builtin(c: &mut Criterion) {
 }
 
 fn main() {
-    let mut c = Criterion::default().configure_from_args();
+    let mut c = Criterion::default()
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_secs(3))
+        .sample_size(300)
+        .noise_threshold(0.05)
+        .configure_from_args();
+
     bench_by_recip(&mut c);
     bench_builtin(&mut c);
+
     c.final_summary();
 }
