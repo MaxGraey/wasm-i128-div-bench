@@ -11,8 +11,7 @@ operators (`__udivti3` / `__umodti3` on wasm). Both run through criterion.
 
 ## Run the benchmarks
 
-Aggregate the runs into [report/RESULTS.md](report/RESULTS.md) (environment plus
-per-runtime and cross-runtime tables):
+Aggregate the runs into [markdown files in report folder](report/):
 
 ```bash
 npm run bench
