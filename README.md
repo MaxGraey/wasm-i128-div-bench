@@ -58,11 +58,11 @@ The family is unsigned. `D` denotes the normalized divisor `d_hi*2^64 + d_lo`.
 
 `i64.recip128` performs divisor prep (normalize + reciprocal).
 
-```
+```llvm
 i64.recip128 : [i64 i64] -> [i32 i64 i64 i64]
 
-  operands  y_lo y_hi
-  results   lsh rcp d_lo d_hi
+  operands:  y_lo y_hi
+  results:   lsh rcp d_lo d_hi
 
   y_hi != 0: ; (full-width divisor, 3-by-2)
     lsh = clz(y_hi)
@@ -79,13 +79,14 @@ i64.recip128 : [i64 i64] -> [i32 i64 i64 i64]
 
 `i64.divrem_recip128` returns the quotient and remainder.
 
-```
+```llvm
 i64.divrem_recip128 : [i32 i64 i64 i64 i64 i64] -> [i64 i64 i64 i64]
 
-  operands  lsh rcp d_lo d_hi x_lo x_hi   ; prep from i64.recip128(Y), then dividend X
-  results   q_lo q_hi r_lo r_hi
-    q_hi*2^64 + q_lo = floor(X / Y),  Y = D >> lsh
-    r_hi*2^64 + r_lo = X mod Y
+  operands:  lsh rcp d_lo d_hi x_lo x_hi   ; prep from i64.recip128(Y), then dividend X
+  results:   q_lo q_hi r_lo r_hi
+
+  q_hi * 2^64 + q_lo = floor(X / Y), Y = D >> lsh
+  r_hi * 2^64 + r_lo = X mod Y
 ```
 
 It picks the kernel from `d_hi`, 2-by-1 when `d_hi == 0` (64-bit divisor,
@@ -95,8 +96,8 @@ The divisor check, including divide-by-zero, lives in `i64.recip128`.
 A full unsigned 128-bit divide needs no branch. The kernel choice is inside the
 divide.
 
-```
-divrem128_u(x_lo, x_hi, y_lo, y_hi) -> (q_lo, q_hi, r_lo, r_hi)
+```llvm
+divrem128_u : [x_lo, x_hi, y_lo, y_hi] -> [q_lo, q_hi, r_lo, r_hi]
 
   lsh, rcp, d_lo, d_hi   = i64.recip128(y_lo, y_hi)
   q_lo, q_hi, r_lo, r_hi = i64.divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi)
