@@ -33,7 +33,6 @@ wasm-opt = ['-O4']
 
 [dependencies]
 criterion = { version = "0.8.2", default-features = false }
-wasm-bindgen = { version = "0.2.122", optional = true }
 getrandom = "0.4.2"
 rand = "0.10.1"
 num-traits = "0.2.19"

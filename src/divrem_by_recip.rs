@@ -77,11 +77,10 @@ fn shr128(v: (u64, u64), n: u32) -> (u64, u64) {
     (v.0 >> n, (v.1 >> n) | ((v.0 << 1) << (63 - n)))
 }
 
-/* Top n bits of x, the part a left shift by n in 0..=63 carries out above the
- * limb pair (0 at n == 0). Companion to shl128's dropped high word. */
 #[inline(always)]
-fn shl_ext(x: u64, n: u32) -> u64 {
-    (x >> 1) >> (63 - n)
+fn shl128_wide(v: (u64, u64), n: u32) -> (u64, u64, u64) {
+    let (hi, lo) = shl128(v, n);
+    ((v.0 >> 1) >> (63 - n), hi, lo)
 }
 
 #[inline(always)]
@@ -284,8 +283,7 @@ fn divrem_recip128(
 ) -> (u64, u64, u64, u64) {
     if unlikely(d_hi == 0) {
         let lsh = lsh as u32;
-        let (xn_hi, xn_lo) = shl128((x_hi, x_lo), lsh);
-        let xn_ex = shl_ext(x_hi, lsh);
+        let (xn_ex, xn_hi, xn_lo) = shl128_wide((x_hi, x_lo), lsh);
 
         let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), d_lo, rcp);
         let (q0, r0) = udivrem_2by1((r1, xn_lo), d_lo, rcp);
@@ -307,8 +305,7 @@ fn divrem_recip128(
     }
 
     let lsh = lsh as u32;
-    let (xn_hi, xn_lo) = shl128((x_hi, x_lo), lsh);
-    let xn_ex = shl_ext(x_hi, lsh);
+    let (xn_ex, xn_hi, xn_lo) = shl128_wide((x_hi, x_lo), lsh);
 
     let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, (d_hi, d_lo), rcp);
     let (r_hi, r_lo) = shr128(r, lsh);
@@ -443,8 +440,8 @@ pub fn srem128(x: i128, y: i128) -> i128 {
 
 /* Benchmark scaffold for the invariant-divisor pattern, and a faithful u128
  * division. The divisor is fixed before the loop, so i64.recip128 runs once and
- * only the per-step i64.div_recip128 / i64.rem_recip128 stay in the loop. Each
- * iteration computes num / d and num % d for a varying u128 num, bit-identical to
+ * only the per-step i64.divrem_recip128 stays in the loop. Each iteration
+ * computes num / d and num % d for a varying u128 num, bit-identical to
  * the native operators (see divrem_with_loop_invariant_divisor_matches_native).
  * Results fold into acc with |= so the loop cannot be optimized away. */
 pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, u64) {
@@ -648,8 +645,13 @@ mod tests {
             u128::MAX,
             u128::MAX - 1,
             0x8000_0000_0000_0000_0000_0000_0000_0000,
+            // 2^127 + k: lsh==0 path, q=1 with a cross-limb borrow (d_lo != 0).
+            (1u128 << 127) + 1,
+            (1u128 << 127) + 3,
             0xffff_ffff_ffff_ffff_0000_0000_0000_0000,
             0x0000_0000_0000_0001_0000_0000_0000_0000,
+            // hi=3, lo=1: forces the 3-by-2 kernel with a nonzero normalized low limb.
+            0x0000_0000_0000_0003_0000_0000_0000_0001,
         ];
         for &x in &vals {
             for &y in &vals {
@@ -686,7 +688,7 @@ mod tests {
             1,
             -1,
             2,
-            2,
+            -2,
             i128::MAX,
             i128::MIN,
             i128::MIN + 1,
