@@ -24,6 +24,13 @@ or
 scripts/bench.sh
 ```
 
+Pass `--features native-wide-mul` to swap `mul128` from the `u64`-limb synthesis
+to a single native `u128` multiply (`i64.mul_wide_u`) across every backend:
+
+```bash
+scripts/bench.sh --features native-wide-mul
+```
+
 ## Test
 
 ```bash

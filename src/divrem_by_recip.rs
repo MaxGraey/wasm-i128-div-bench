@@ -9,7 +9,8 @@
  * stays on u64 limbs. Everything below operates on explicit (hi, lo) limbs with
  * manual carry / borrow, so no native u128 arithmetic is emitted - native u128
  * appears only at the public API boundary, where the split / join lower to plain
- * register moves.
+ * register moves. The one exception is the `native-wide-mul` feature, which swaps
+ * mul128 to a native u128 product to benchmark a wide multiply against the limbs.
  */
 
 use crate::utils::*;
@@ -83,6 +84,17 @@ fn shl128_wide(v: (u64, u64), n: u32) -> (u64, u64, u64) {
     ((v.0 >> 1) >> (63 - n), hi, lo)
 }
 
+/* With `native-wide-mul` the 64x64 -> 128 product is a single native u128
+ * multiply (i64.mul_wide_u in the wide-arithmetic proposal), to benchmark a
+ * native wide multiply against the u64-limb synthesis on each backend. Default
+ * off keeps the path on u64 limbs - see the file header. */
+#[cfg(feature = "native-wide-mul")]
+#[inline(always)]
+fn mul128(a: u64, b: u64) -> (u64, u64) {
+    split((a as u128) * (b as u128))
+}
+
+#[cfg(not(feature = "native-wide-mul"))]
 #[inline(always)]
 fn mul128(a: u64, b: u64) -> (u64, u64) {
     let al = a & 0xffff_ffff;
