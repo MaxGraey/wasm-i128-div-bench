@@ -15,18 +15,19 @@ printf "Running %d backends + report, est. ~%d min.\n" \
 
 start=$(date +%s)
 i=0
+
 for be in "${BACKENDS[@]}"; do
   i=$(( i + 1 ))
-  printf "\n=== [%d/%d] bench:%s ===\n" "$i" "${#BACKENDS[@]}" "$be"
-  if [ "$#" -eq 0 ]; then
-    npm run "bench:$be"
-  else
-    npm run "bench:$be" -- "$@"
-  fi
+  printf "\n-> [%d/%d] Start bench: %s <-\n\n" "$i" "${#BACKENDS[@]}" "$be"
+  case "$be" in
+    native)   cargo run --release -- --bench "$@" ;;
+    node)     scripts/bench-node-wasi.sh "$@" ;;
+    wasmtime) scripts/bench-wasmtime.sh "$@" ;;
+  esac
 done
 
-printf "\n=== report ===\n"
-npm run report >/dev/null 2>&1
+printf "\n-> Prepare report <-\n\n"
+python3 scripts/report.py >/dev/null 2>&1
 
 elapsed=$(( $(date +%s) - start ))
 printf "\nDone in %dm%02ds.\nReport -> %s/report/RESULTS.md\n" \
