@@ -227,11 +227,11 @@ fn divide_by_zero_trap() -> ! {
     panic!("divide by zero")
 }
 
-#[cold]
-#[inline(never)]
-fn remainder_by_zero_trap() -> ! {
-    panic!("remainder by zero")
-}
+// #[cold]
+// #[inline(never)]
+// fn remainder_by_zero_trap() -> ! {
+//     panic!("remainder by zero")
+// }
 
 /* i128::MIN / -1 overflows the signed quotient. Mirrors the wasm i64.div_s trap
  * ("integer overflow"); i64.rem_s leaves this case untrapped (remainder 0). */
