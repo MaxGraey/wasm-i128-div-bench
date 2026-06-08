@@ -7,7 +7,7 @@
 #   scripts/bench-d8.sh udiv128                  # filter by name
 #   scripts/bench-d8.sh --sample-size 50 reciprocal
 #
-# node:wasi cannot run this: stock Node rejects the wide-arithmetic opcodes. d8
+# Stock Node rejects the wide-arithmetic opcodes, so this runs under d8, which
 # accepts them under --experimental-wasm-wide-arithmetic, but has no WASI, so a
 # minimal shim (scripts/run-d8-wasi.mjs + @bjorn3/browser_wasi_shim) supplies the
 # monotonic clock, argv, stdout and a writable in-memory preopen. criterion's

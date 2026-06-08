@@ -109,7 +109,7 @@ def environment():
 
 
 def env_hash(rows):
-    """Short hex fingerprint of CPU, OS and toolchain versions (rustc, Node, wasmtime)."""
+    """Short hex fingerprint of CPU, OS and toolchain versions (rustc, d8, wasmtime)."""
     keys = ("CPU", "OS", "rustc", "d8", "wasmtime")
     env  = dict(rows)
     blob = "\n".join(f"{k}={env.get(k, '')}" for k in keys)
