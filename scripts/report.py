@@ -169,9 +169,6 @@ def build(env_rows):
 
     out.append("## Cross-runtime: wasm cost vs native")
     out.append("")
-    out.append("`% = (runtime - native) / native` for the same implementation; positive means")
-    out.append("slower than running native.")
-    out.append("")
 
     rows = []
 

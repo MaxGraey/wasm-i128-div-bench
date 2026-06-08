@@ -57,9 +57,6 @@ is faster. `builtin` is the native `u128` / `i128` operators.
 
 ## Cross-runtime: wasm cost vs native
 
-`% = (runtime - native) / native` for the same implementation; positive means
-slower than running native.
-
 | bench | recip: d8 | recip: wasmtime | builtin: d8 | builtin: wasmtime |
 | --- | ---: | ---: | ---: | ---: |
 | `udivrem128` | +47.2% | +63.2% | -34.4% | -18.8% |
