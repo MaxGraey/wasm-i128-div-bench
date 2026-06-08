@@ -4,13 +4,13 @@
  * Based on Algorithm 2 of Moeller & Granlund
  * "Improved division by invariant integers".
  *
- * The whole point of this path is to replace the compiler-rt 128-bit division
- * libcall (__udivti3 / __umodti3 on wasm) with a multiply-heavy sequence that
- * stays on u64 limbs. Everything below operates on explicit (hi, lo) limbs with
- * manual carry / borrow, so no native u128 arithmetic is emitted - native u128
- * appears only at the public API boundary, where the split / join lower to plain
- * register moves. The one exception is the `native-wide-mul` feature, which swaps
- * mul128 to a native u128 product to benchmark a wide multiply against the limbs.
+ * Replaces the compiler-rt 128-bit division libcall (__udivti3 / __umodti3 on
+ * wasm) with a multiply-heavy sequence built from add, sub and 64x64->128
+ * multiply-high instead of a full divide. Those use native u128 arithmetic,
+ * which lowers to the wide-arithmetic proposal (i64.add128 / i64.sub128 /
+ * i64.mul_wide_u) on wasm and to adc / sbb / mul on native. Normalization
+ * shifts stay on explicit (hi, lo) limbs - the proposal has no 128-bit shift.
+ * Only the divide is synthesized from the reciprocal, never a native u128 /.
  */
 
 use crate::utils::*;
@@ -39,26 +39,6 @@ fn join(v: (u64, u64)) -> u128 {
     ((v.0 as u128) << 64) | (v.1 as u128)
 }
 
-#[inline(always)]
-fn add128(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    let (lo, carry) = a.1.overflowing_add(b.1);
-    let hi = a.0.wrapping_add(b.0).wrapping_add(carry as u64);
-    (hi, lo)
-}
-
-#[inline(always)]
-fn add128_u64(a: (u64, u64), b: u64) -> (u64, u64) {
-    let (lo, carry) = a.1.overflowing_add(b);
-    (a.0.wrapping_add(carry as u64), lo)
-}
-
-#[inline(always)]
-fn sub128(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    let (lo, borrow) = a.1.overflowing_sub(b.1);
-    let hi = a.0.wrapping_sub(b.0).wrapping_sub(borrow as u64);
-    (hi, lo)
-}
-
 /* 128-bit logical shifts over the (hi, lo) limb pair, n in 0..=63, as plain
  * shifts (stable Rust, no funnel intrinsic). The "<< 1" preshift with "63 - n"
  * zeroes the cross term at n == 0, where a bare "hi << (64 - n)" would wrap to
@@ -84,33 +64,6 @@ fn shl128_wide(v: (u64, u64), n: u32) -> (u64, u64, u64) {
     ((v.0 >> 1) >> (63 - n), hi, lo)
 }
 
-#[cfg(feature = "native-wide-mul")]
-#[inline(always)]
-fn mul128(a: u64, b: u64) -> (u64, u64) {
-    split((a as u128) * (b as u128))
-}
-
-#[cfg(not(feature = "native-wide-mul"))]
-#[inline(always)]
-fn mul128(a: u64, b: u64) -> (u64, u64) {
-    let al = a & 0xffff_ffff;
-    let ah = a >> 32;
-
-    let bl = b & 0xffff_ffff;
-    let bh = b >> 32;
-
-    let ll = al * bl;
-    let lh = al * bh;
-    let hl = ah * bl;
-    let hh = ah * bh;
-
-    let cs = (ll >> 32) + (lh & 0xffff_ffff) + (hl & 0xffff_ffff);
-    let lo = (cs << 32) | (ll & 0xffff_ffff);
-    let hi = hh + (lh >> 32) + (hl >> 32) + (cs >> 32);
-
-    (hi, lo)
-}
-
 /* Computes floor((2^128 - 1) / d) - 2^64 for normalized d (top bit set). */
 #[inline(always)]
 fn reciprocal_2by1(d: u64) -> u64 {
@@ -132,9 +85,10 @@ fn reciprocal_2by1(d: u64) -> u64 {
     let d0  = d & 1;
     let d63 = (d >> 1).wrapping_add(d0); // ceil(d/2)
     let e   = ((v2 >> 1) & 0u64.wrapping_sub(d0)).wrapping_sub(v2.wrapping_mul(d63));
-    let v3  = (mul128(v2, e).0 >> 1).wrapping_add(v2 << 31);
+    let v3  = ((((v2 as u128) * (e as u128)) >> 64) as u64 >> 1).wrapping_add(v2 << 31);
 
-    v3.wrapping_sub(add128_u64(mul128(v3, d), d).0).wrapping_sub(d)
+    let p = ((v3 as u128) * (d as u128)).wrapping_add(d as u128);
+    v3.wrapping_sub((p >> 64) as u64).wrapping_sub(d)
 }
 
 /* Reciprocal for a normalized 3-by-2 divisor d (high limb top bit set). */
@@ -153,12 +107,13 @@ fn reciprocal_3by2(d: (u64, u64)) -> u64 {
         p = p.wrapping_sub(d.0);
     }
 
-    let t = mul128(v, d.1);
-    p = p.wrapping_add(t.0);
+    let t = (v as u128) * (d.1 as u128);
+    let t_hi = (t >> 64) as u64;
+    p = p.wrapping_add(t_hi);
 
-    if p < t.0 {
+    if p < t_hi {
         v = v.wrapping_sub(1);
-        if p >= d.0 && (p > d.0 || t.1 >= d.1) {
+        if p >= d.0 && (p > d.0 || t as u64 >= d.1) {
             v = v.wrapping_sub(1);
         }
     }
@@ -170,10 +125,10 @@ fn reciprocal_3by2(d: (u64, u64)) -> u64 {
  * returns (quotient, remainder). */
 #[inline]
 fn udivrem_2by1(u: (u64, u64), d: u64, v: u64) -> (u64, u64) {
-    let q = add128(mul128(v, u.0), u);
+    let q = ((v as u128) * (u.0 as u128)).wrapping_add(join(u));
 
-    let q_lo = q.1;
-    let mut q_hi = q.0.wrapping_add(1);
+    let q_lo = q as u64;
+    let mut q_hi = ((q >> 64) as u64).wrapping_add(1);
     let mut r = u.1.wrapping_sub(q_hi.wrapping_mul(d));
 
     if r > q_lo {
@@ -199,30 +154,31 @@ fn udivrem_3by2(
     d: (u64, u64),
     v: u64,
 ) -> (u64, (u64, u64)) {
-    let q = add128(mul128(v, u2), (u2, u1));
+    let d128 = join(d);
+    let q = ((v as u128) * (u2 as u128)).wrapping_add(join((u2, u1)));
 
-    let q_lo = q.1;
-    let mut q_hi = q.0;
+    let q_lo = q as u64;
+    let mut q_hi = (q >> 64) as u64;
 
     let r1 = u1.wrapping_sub(q_hi.wrapping_mul(d.0));
-    let t = mul128(d.1, q_hi);
+    let t = (d.1 as u128) * (q_hi as u128);
 
-    let mut r = sub128(sub128((r1, u0), t), d);
-    let r1 = r.0;
+    let mut r = join((r1, u0)).wrapping_sub(t).wrapping_sub(d128);
+    let r1 = (r >> 64) as u64;
 
     q_hi = q_hi.wrapping_add(1);
 
     if r1 >= q_lo {
         q_hi = q_hi.wrapping_sub(1);
-        r = add128(r, d);
+        r = r.wrapping_add(d128);
     }
 
-    if r >= d {
+    if r >= d128 {
         q_hi = q_hi.wrapping_add(1);
-        r = sub128(r, d);
+        r = r.wrapping_sub(d128);
     }
 
-    (q_hi, r)
+    (q_hi, split(r))
 }
 
 /* Division by zero is fatal. Messages mirror the wasm integer trap text V8
@@ -304,8 +260,8 @@ fn divrem_recip128(
 
     if unlikely(lsh == 0) {
         return if (d_hi < x_hi) || (d_hi == x_hi && d_lo <= x_lo) {
-            let (r_hi, r_lo) = sub128((x_hi, x_lo), (d_hi, d_lo));
-            (1, 0, r_lo, r_hi)
+            let r = join((x_hi, x_lo)).wrapping_sub(join((d_hi, d_lo)));
+            (1, 0, r as u64, (r >> 64) as u64)
         } else {
             (0, 0, x_lo, x_hi)
         };
@@ -535,18 +491,6 @@ mod tests {
     use super::*;
     use crate::utils::SEED;
     use rand::{RngExt, SeedableRng, rngs::SmallRng};
-
-    #[test]
-    fn umul_matches_native() {
-        let mut rng = SmallRng::seed_from_u64(SEED);
-        for _ in 0..100_000 {
-            let a: u64 = rng.random();
-            let b: u64 = rng.random();
-            let got = mul128(a, b);
-            let want = (a as u128) * (b as u128);
-            assert_eq!(((got.0 as u128) << 64) | got.1 as u128, want, "{a} * {b}");
-        }
-    }
 
     #[test]
     fn check_shl128() {

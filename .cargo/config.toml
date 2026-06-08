@@ -1,6 +1,7 @@
 # auto-cleanup cargo cache
 [unstable]
 gc = true
+build-std = ["std", "panic_abort"]
 
 # utilize parallel front-end compilation
 [build]
@@ -27,4 +28,4 @@ rustflags = ["-C", "target-feature=+altivec"]
 
 # WebAssembly architecture
 [target.'cfg(target_arch = "wasm32")']
-rustflags = ["-C", "target-feature=+bulk-memory,+multivalue,+reference-types"]
+rustflags = ["-C", "target-feature=+bulk-memory,+multivalue,+reference-types,+wide-arithmetic"]

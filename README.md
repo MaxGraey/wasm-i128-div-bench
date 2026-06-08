@@ -1,13 +1,23 @@
 # WebAssembly 128-bit Division Benchmarks
 
 Microbenchmarks for 128-bit integer division. A reciprocal-based implementation
-(stays on `u64` limbs, no compiler-rt libcall) vs the native `u128` / `i128`
-operators (`__udivti3` / `__umodti3` on wasm). Both run through criterion.
+(native u128 add / sub / multiply-high that lower to the wide-arithmetic
+proposal, with a multiply-based divide instead of the compiler-rt libcall) vs
+the native `u128` / `i128` operators (`__udivti3` / `__umodti3` on wasm). Both
+run through criterion.
+
+The wasm build enables the [wide-arithmetic] proposal: `+wide-arithmetic` (in
+`.cargo/config.toml`) lets the reciprocal path lower to `i64.add128` /
+`i64.sub128` / `i64.mul_wide_u`, and `build-std` (also in `.cargo/config.toml`)
+rebuilds std / compiler-builtins so the builtin `__udivti3` / `__umodti3`
+baseline is measured with the proposal too.
 
 ## Requirements
 
-- **Rust Nightly** with `wasm32-wasip1` target
-- **Node JS** >= 22
+- **Rust Nightly** with the `wasm32-wasip1` target and the `rust-src` component
+  (for `build-std`)
+- **V8 Nightly** with wide-arithmetic, e.g. via [jsvu](https://github.com/GoogleChromeLabs/jsvu)
+- **wasmtime** >= 45 (for the `-W wide-arithmetic=y` flag)
 
 ## Run the benchmarks
 
@@ -23,12 +33,8 @@ or
 scripts/bench.sh
 ```
 
-Pass `--features native-wide-mul` to swap `mul128` from the `u64`-limb synthesis
-to a single native `u128` multiply (`i64.mul_wide_u`) across every backend.
-
-```bash
-scripts/bench.sh --features native-wide-mul
-```
+Individual backends: `npm run bench:native`, `npm run bench:d8`,
+`npm run bench:wasmtime`.
 
 ## Test
 

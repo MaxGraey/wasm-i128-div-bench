@@ -4,8 +4,11 @@
   "scripts": {
     "bench": "scripts/bench.sh",
     "bench:native": "cargo run --release -- --bench",
-    "bench:node": "scripts/bench-node-wasi.sh",
+    "bench:d8": "scripts/bench-d8.sh",
     "bench:wasmtime": "scripts/bench-wasmtime.sh",
     "report": "python3 scripts/report.py"
+  },
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.2"
   }
 }
