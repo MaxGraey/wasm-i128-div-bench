@@ -10,22 +10,24 @@ comparison tables. Run the benches first:
 This script only reads what those runs saved; it does not run anything itself.
 """
 
-import json
 import os
-import platform
-import shutil
-import subprocess
 import sys
+import platform
+import subprocess
+import shutil
+import json
+import hashlib
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# runtime label -> criterion result root (CARGO_TARGET_DIR/criterion)
 RUNTIMES = {
-    "native": ROOT / "target" / "criterion",
-    "node": ROOT / "target" / "wasi" / "criterion",
+    "native":   ROOT / "target" / "criterion",
+    "node":     ROOT / "target" / "wasi" / "criterion",
     "wasmtime": ROOT / "target" / "wasmtime" / "criterion",
 }
+
 RUNTIME_TITLES = {
     "native": "Native",
     "node": "Node (V8)",
@@ -41,6 +43,7 @@ BENCHES = [
     "srem128",
     "divrem_loop_invariant",
 ]
+
 IMPLS = ("reciprocal", "builtin")
 
 
@@ -51,7 +54,7 @@ def read_ns(root, impl, bench):
         return None
 
     data = json.loads(path.read_text(encoding="utf-8"))
-    est = data.get("slope") or data.get("mean")
+    est  = data.get("slope") or data.get("mean")
     return est["point_estimate"] if est else None
 
 
@@ -95,27 +98,37 @@ def environment():
 
     rows.append(("Cores", str(os.cpu_count())))
     rows.append(("rustc", sh(["rustc", "--version"]) or "?"))
-    rows.append(("Node", sh(["node", "--version"]) or "?"))
+    rows.append(("Node",  sh(["node",  "--version"]) or "?"))
     rows.append(("wasmtime", sh([wasmtime_bin(), "--version"]) or "?"))
 
     return rows
 
 
+def env_hash(rows):
+    """Short hex fingerprint of CPU, OS and toolchain versions (rustc, Node, wasmtime)."""
+    keys = ("CPU", "OS", "rustc", "Node", "wasmtime")
+    env  = dict(rows)
+    blob = "\n".join(f"{k}={env.get(k, '')}" for k in keys)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:8]
+
+
 def md_table(header, rows, right_from=1):
-    sep = ["---:" if i >= right_from else "---" for i in range(len(header))]
-    out = ["| " + " | ".join(header) + " |", "| " + " | ".join(sep) + " |"]
-    out += ["| " + " | ".join(r) + " |" for r in rows]
+    sep  = ["---:" if i >= right_from else "---" for i in range(len(header))]
+    out  = ["| " + " | ".join(header) + " |", "| " + " | ".join(sep) + " |"]
+    out += ["| " + " | ".join(r)      + " |" for r in rows]
     return "\n".join(out)
 
 
-def build():
+def build(env_rows):
     data = {
         rt: {im: {b: read_ns(root, im, b) for b in BENCHES} for im in IMPLS}
         for rt, root in RUNTIMES.items()
     }
 
     out = []
+
     out.append("# Benchmark results")
+
     out.append("")
     out.append("128-bit integer division: a `u64`-limb reciprocal path vs the native")
     out.append("`u128` / `i128` operators (`__udivti3` / `__umodti3`), across native, Node")
@@ -124,11 +137,13 @@ def build():
     out.append("")
 
     out.append("## Environment")
+
     out.append("")
-    out += [f"- **{k}**: {v}" for k, v in environment()]
+    out += [f"- **{k}**: {v}" for k, v in env_rows]
     out.append("")
 
     out.append("## Per-runtime: reciprocal vs builtin")
+
     out.append("")
     out.append("`rel = (reciprocal - builtin) / builtin`; negative means the reciprocal path")
     out.append("is faster. `builtin` is the native `u128` / `i128` operators.")
@@ -137,11 +152,14 @@ def build():
     for rt in RUNTIMES:
         out.append(f"### {RUNTIME_TITLES[rt]}")
         out.append("")
+
         rows = []
+
         for b in BENCHES:
             blt = data[rt]["builtin"][b]
             rcp = data[rt]["reciprocal"][b]
             rows.append([f"`{b}`", fmt_time(blt), fmt_time(rcp), rel_pct(rcp, blt)])
+
         out.append(md_table(["bench", "builtin", "reciprocal", "rel"], rows))
         out.append("")
 
@@ -165,7 +183,13 @@ def build():
         ])
 
     out.append(md_table(
-        ["bench", "recip: node", "recip: wasmtime", "builtin: node", "builtin: wasmtime"],
+        [
+            "bench",
+            "recip: node",
+            "recip: wasmtime",
+            "builtin: node",
+            "builtin: wasmtime"
+        ],
         rows,
     ))
 
@@ -174,10 +198,14 @@ def build():
 
 
 def main():
-    md = build()
-    dest = ROOT / "report" / "RESULTS.md"
+    env_rows = environment()
+    md = build(env_rows)
+    hash = env_hash(env_rows)
+
+    dest = ROOT / "report" / f"RESULTS-{hash}.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(md + "\n", encoding="utf-8")
+
     print(md)
     print(f"\nwritten to {dest.relative_to(ROOT)}", file=sys.stderr)
 
