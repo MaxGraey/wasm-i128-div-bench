@@ -53,7 +53,8 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
 
 /* Criterion micro-benchmarks for the public API. Same seeded operands as the
  * reciprocal backend, so the two can be compared label for label. */
-use crate::utils::{BENCH_ITERS, SEED, rand_operands};
+use crate::utils::*;
+
 use criterion::Criterion;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use std::hint::black_box;
@@ -104,6 +105,6 @@ pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
     let mut rng = SmallRng::seed_from_u64(SEED);
     let x = (rng.random::<u64>(), rng.random::<u64>());
     c.bench_function("builtin/divrem_loop_invariant", |b| {
-        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(BENCH_ITERS)))
+        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(LOOP_INVAR_ITERS)))
     });
 }

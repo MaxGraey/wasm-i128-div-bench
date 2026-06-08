@@ -523,7 +523,7 @@ pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
     let mut rng = SmallRng::seed_from_u64(SEED);
     let x = (rng.random::<u64>(), rng.random::<u64>());
     c.bench_function("reciprocal/divrem_loop_invariant", |b| {
-        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(BENCH_ITERS)))
+        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(LOOP_INVAR_ITERS)))
     });
 }
 

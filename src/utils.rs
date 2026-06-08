@@ -5,11 +5,11 @@
 use num_traits::AsPrimitive;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
+/* Iteration count for the loop-invariant-divisor benchmark. */
+pub(crate) const LOOP_INVAR_ITERS: usize = 10_000;
+
 /* Fixed seed (golden-ratio) for random tests and benches. */
 pub(crate) const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
-
-/* Iteration count for the loop-invariant-divisor benchmark. */
-pub(crate) const BENCH_ITERS: usize = 1000;
 
 /* Random dividend and a random divisor, rejecting only 0 (the divide-by-zero
  * trap) and the i128::MIN bit pattern. The divisor is no longer pinned to the

@@ -12,7 +12,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-rustup target add wasm32-wasip1 >/dev/null 2>&1 || true
 cargo build --release --target wasm32-wasip1
 
 WASM="$PWD/target/wasm32-wasip1/release/wasm-i128-div-bench.wasm"

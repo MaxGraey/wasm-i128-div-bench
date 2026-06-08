@@ -15,13 +15,18 @@ benchmark via `node:wasi`):
 
     npm run bench:node
 
+The same wasm under wasmtime:
+
+    npm run bench:wasmtime
+
 Filter by name or forward any criterion flag with `--`:
 
     npm run bench:node -- udiv128
-    npm run bench:node -- --sample-size 50 reciprocal
+    npm run bench:wasmtime -- --sample-size 50 reciprocal
 
-Needs Node 22+. The `wasm32-wasip1` target is installed automatically; wasm
-results are written under `target/wasi/criterion`.
+Needs Node 22+ and wasmtime on `PATH`. The `wasm32-wasip1` target is installed
+automatically; wasm results are written under `target/wasi/criterion` (Node) and
+`target/wasmtime/criterion` (wasmtime).
 
 ## Test
 

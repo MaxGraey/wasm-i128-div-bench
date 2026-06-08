@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "bench:native": "cargo run --release -- --bench",
-    "bench:node": "scripts/bench-node-wasi.sh"
+    "bench:node": "scripts/bench-node-wasi.sh",
+    "bench:wasmtime": "scripts/bench-wasmtime.sh"
   }
 }
