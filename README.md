@@ -53,7 +53,7 @@ The family is unsigned. `D` denotes the normalized divisor `d_hi*2^64 + d_lo`.
 `i64.recip128` - divisor prep (normalize + reciprocal):
 
 ```
-i64.recip128 : [i64 i64] -> [i64 i64 i64 i64]
+i64.recip128 : [i64 i64] -> [i64 i64 i64 i32]
 
   operands  y_lo y_hi
   results   d_lo d_hi rcp lsh
@@ -74,7 +74,7 @@ i64.recip128 : [i64 i64] -> [i64 i64 i64 i64]
 `i64.divrem_recip128` - quotient and remainder:
 
 ```
-i64.divrem_recip128 : [i64 i64 i64 i64 i64 i64] -> [i64 i64 i64 i64]
+i64.divrem_recip128 : [i64 i64 i64 i64 i64 i32] -> [i64 i64 i64 i64]
 
   operands  x_lo x_hi d_lo d_hi rcp lsh   ; from i64.recip128 of Y
   results   q_lo q_hi r_lo r_hi
@@ -115,7 +115,7 @@ words land on the stack, no result locals:
   (local $d_lo i64)
   (local $d_hi i64)
   (local $rcp i64)
-  (local $lsh i64)
+  (local $lsh i32)
 
   ;; reciprocal divisor precomp and can be utilized in cse/licm
   local.get $y_lo

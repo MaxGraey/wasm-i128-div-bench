@@ -250,11 +250,11 @@ fn integer_overflow_trap() -> ! {
 /* i64.recip128 : [y_lo y_hi] -> [d_lo d_hi rcp lsh]
  * Normalize the divisor and precompute its reciprocal. y_hi == 0 takes the
  * 2-by-1 kernel (d_hi = 0), else 3-by-2. Traps on y == 0. */
-fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u64) {
+fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u32) {
     if likely(y_hi != 0) {
         let lsh = y_hi.leading_zeros();
         let (d_hi, d_lo) = shl128((y_hi, y_lo), lsh);
-        return (d_lo, d_hi, reciprocal_3by2((d_hi, d_lo)), lsh as u64);
+        return (d_lo, d_hi, reciprocal_3by2((d_hi, d_lo)), lsh);
     }
 
     // 64-bit divisor (y_hi == 0): 2-by-1 kernel.
@@ -264,7 +264,7 @@ fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u64) {
 
     let lsh = y_lo.leading_zeros();
     let d_lo = y_lo << lsh;
-    (d_lo, 0, reciprocal_2by1(d_lo), lsh as u64)
+    (d_lo, 0, reciprocal_2by1(d_lo), lsh)
 }
 
 /* i64.divrem_recip128 : [x_lo x_hi d_lo d_hi rcp lsh] -> [q_lo q_hi r_lo r_hi]
@@ -279,10 +279,9 @@ fn divrem_recip128(
     d_lo: u64,
     d_hi: u64,
     rcp: u64,
-    lsh: u64,
+    lsh: u32,
 ) -> (u64, u64, u64, u64) {
     if unlikely(d_hi == 0) {
-        let lsh = lsh as u32;
         let (xn_ex, xn_hi, xn_lo) = shl128_wide((x_hi, x_lo), lsh);
 
         let (q1, r1) = udivrem_2by1((xn_ex, xn_hi), d_lo, rcp);
@@ -304,7 +303,6 @@ fn divrem_recip128(
         };
     }
 
-    let lsh = lsh as u32;
     let (xn_ex, xn_hi, xn_lo) = shl128_wide((x_hi, x_lo), lsh);
 
     let (q, r) = udivrem_3by2(xn_ex, xn_hi, xn_lo, (d_hi, d_lo), rcp);
