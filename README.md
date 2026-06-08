@@ -86,14 +86,6 @@ It picks the kernel from `d_hi` - 2-by-1 when `d_hi == 0` (64-bit divisor,
 quotient up to 128 bits), 3-by-2 otherwise (then `q_hi == 0`). It does not trap;
 the divisor check, including divide-by-zero, lives in `i64.recip128`.
 
-`i64.div_recip128` and `i64.rem_recip128` narrow it to one result - same operands
-and work, one limb pair dropped:
-
-```
-  i64.div_recip128 : [i64 i64 i64 i64 i64 i64] -> [i64 i64]   ; results q_lo q_hi
-  i64.rem_recip128 : [i64 i64 i64 i64 i64 i64] -> [i64 i64]   ; results r_lo r_hi
-```
-
 A full unsigned 128-bit divide needs no branch - the kernel choice is inside the
 divide:
 
