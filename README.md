@@ -1,4 +1,4 @@
-# wasm-i128-div-bench
+# WebAssembly 128-bit Division Benchmarks
 
 Microbenchmarks for 128-bit integer division: a reciprocal-based implementation
 (stays on `u64` limbs, no compiler-rt libcall) vs the native `u128` / `i128`
