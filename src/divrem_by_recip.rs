@@ -84,7 +84,7 @@ fn shl_ext(x: u64, n: u32) -> u64 {
     (x >> 1) >> (63 - n)
 }
 
-#[inline]
+#[inline(always)]
 fn mul128(a: u64, b: u64) -> (u64, u64) {
     let al = a & 0xffff_ffff;
     let ah = a >> 32;
@@ -105,6 +105,7 @@ fn mul128(a: u64, b: u64) -> (u64, u64) {
 }
 
 /* Computes floor((2^128 - 1) / d) - 2^64 for normalized d (top bit set). */
+#[inline(always)]
 fn reciprocal_2by1(d: u64) -> u64 {
     debug_assert!(d & 0x8000_0000_0000_0000 != 0, "d must be normalized");
 
@@ -130,6 +131,7 @@ fn reciprocal_2by1(d: u64) -> u64 {
 }
 
 /* Reciprocal for a normalized 3-by-2 divisor d (high limb top bit set). */
+#[inline]
 fn reciprocal_3by2(d: (u64, u64)) -> u64 {
     let mut v = reciprocal_2by1(d.0);
     let mut p = d.0.wrapping_mul(v);
