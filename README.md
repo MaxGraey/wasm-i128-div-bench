@@ -15,7 +15,7 @@ Aggregate the runs into [report/RESULTS.md](report/RESULTS.md) (environment plus
 per-runtime and cross-runtime tables):
 
 ```bash
-npm run report
+npm run bench
 ```
 
 or
