@@ -4,33 +4,44 @@ Microbenchmarks for 128-bit integer division: a reciprocal-based implementation
 (stays on `u64` limbs, no compiler-rt libcall) vs the native `u128` / `i128`
 operators (`__udivti3` / `__umodti3` on wasm). Both run through criterion.
 
+## Requirements
+
+- **Rust Nightly** with `wasm32-wasip1` target
+- **Node JS** >= 22
+
 ## Run the benchmarks
 
 Native:
 
-    npm run bench:native
+```bash
+npm run bench:native
+```
 
 WebAssembly under Node (builds to `wasm32-wasip1`, runs the same criterion
 benchmark via `node:wasi`):
 
-    npm run bench:node
+```bash
+npm run bench:node
+```
 
 The same wasm under wasmtime:
 
-    npm run bench:wasmtime
+```bash
+npm run bench:wasmtime
+```
 
 Filter by name or forward any criterion flag with `--`:
 
-    npm run bench:node -- udiv128
-    npm run bench:wasmtime -- --sample-size 50 reciprocal
-
-Needs Node 22+ and wasmtime on `PATH`. The `wasm32-wasip1` target is installed
-automatically; wasm results are written under `target/wasi/criterion` (Node) and
-`target/wasmtime/criterion` (wasmtime).
+```bash
+npm run bench:node -- udiv128
+npm run bench:wasmtime -- --sample-size 50 reciprocal
+```
 
 ## Test
 
-    cargo test
+```bash
+cargo test
+```
 
 ## Extended wide arithmetic proposal
 
@@ -55,33 +66,33 @@ The family is unsigned. `D` denotes the normalized divisor `d_hi*2^64 + d_lo`.
 `i64.recip128` - divisor prep (normalize + reciprocal):
 
 ```
-  i64.recip128 : [i64 i64] -> [i64 i64 i64 i64]
+i64.recip128 : [i64 i64] -> [i64 i64 i64 i64]
 
-    operands  y_lo y_hi
-    results   d_lo d_hi rcp lsh
+  operands  y_lo y_hi
+  results   d_lo d_hi rcp lsh
 
-    y_hi != 0  (full-width divisor, 3-by-2):
-      lsh = clz(y_hi)
-      D = Y << lsh                   ; normalized, bit 127 set
-      rcp = floor((2^192 - 1) / D) - 2^64
+  y_hi != 0  (full-width divisor, 3-by-2):
+    lsh = clz(y_hi)
+    D = Y << lsh                   ; normalized, bit 127 set
+    rcp = floor((2^192 - 1) / D) - 2^64
 
-    y_hi == 0  (64-bit divisor, 2-by-1):
-      lsh = clz(y_lo)
-      d_lo = y_lo << lsh,  d_hi = 0  ; normalized, bit 63 set
-      rcp = floor((2^128 - 1) / d_lo) - 2^64
+  y_hi == 0  (64-bit divisor, 2-by-1):
+    lsh = clz(y_lo)
+    d_lo = y_lo << lsh,  d_hi = 0  ; normalized, bit 63 set
+    rcp = floor((2^128 - 1) / d_lo) - 2^64
 
-    traps if y == 0
+  traps if y == 0
 ```
 
 `i64.divrem_recip128` - quotient and remainder:
 
 ```
-  i64.divrem_recip128 : [i64 i64 i64 i64 i64 i64] -> [i64 i64 i64 i64]
+i64.divrem_recip128 : [i64 i64 i64 i64 i64 i64] -> [i64 i64 i64 i64]
 
-    operands  x_lo x_hi d_lo d_hi rcp lsh   ; from i64.recip128 of Y
-    results   q_lo q_hi r_lo r_hi
-      q_hi*2^64 + q_lo = floor(X / Y),  Y = D >> lsh
-      r_hi*2^64 + r_lo = X mod Y
+  operands  x_lo x_hi d_lo d_hi rcp lsh   ; from i64.recip128 of Y
+  results   q_lo q_hi r_lo r_hi
+    q_hi*2^64 + q_lo = floor(X / Y),  Y = D >> lsh
+    r_hi*2^64 + r_lo = X mod Y
 ```
 
 It picks the kernel from `d_hi` - 2-by-1 when `d_hi == 0` (64-bit divisor,
