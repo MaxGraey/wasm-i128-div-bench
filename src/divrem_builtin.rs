@@ -58,7 +58,7 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
 use crate::utils::*;
 
 use criterion::Criterion;
-use rand::{RngExt, SeedableRng, rngs::SmallRng};
+use rand::{RngExt, SeedableRng};
 use std::hint::black_box;
 
 pub fn bench_udivrem128(c: &mut Criterion) {
@@ -104,7 +104,7 @@ pub fn bench_srem128(c: &mut Criterion) {
 }
 
 pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
-    let mut rng = SmallRng::seed_from_u64(SEED);
+    let mut rng = BenchRng::seed_from_u64(SEED);
     let x = (rng.random::<u64>(), rng.random::<u64>());
     c.bench_function("builtin/divrem_loop_invariant", |b| {
         b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(LOOP_INVAR_ITERS)))

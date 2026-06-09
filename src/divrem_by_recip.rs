@@ -427,9 +427,9 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
 }
 
 /* Criterion micro-benchmarks for the public API. Inputs come from a seeded
- * SmallRng so this backend and divrem_builtin see identical operands. */
+ * BenchRng so this backend and divrem_builtin see identical operands. */
 use criterion::Criterion;
-use rand::{RngExt, SeedableRng, rngs::SmallRng};
+use rand::{RngExt, SeedableRng};
 use std::hint::black_box;
 
 pub fn bench_udivrem128(c: &mut Criterion) {
@@ -475,7 +475,7 @@ pub fn bench_srem128(c: &mut Criterion) {
 }
 
 pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
-    let mut rng = SmallRng::seed_from_u64(SEED);
+    let mut rng = BenchRng::seed_from_u64(SEED);
     let x = (rng.random::<u64>(), rng.random::<u64>());
     c.bench_function("reciprocal/divrem_loop_invariant", |b| {
         b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(LOOP_INVAR_ITERS)))
@@ -485,8 +485,8 @@ pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::SEED;
-    use rand::{RngExt, SeedableRng, rngs::SmallRng};
+    use crate::utils::{BenchRng, SEED};
+    use rand::{RngExt, SeedableRng};
 
     #[test]
     fn check_shl128() {
@@ -541,7 +541,7 @@ mod tests {
             acc
         };
 
-        let mut rng = SmallRng::seed_from_u64(SEED);
+        let mut rng = BenchRng::seed_from_u64(SEED);
         let mut cases = vec![
             ((0u64, 0u64), 0usize),
             ((0, 0), 1),
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn unsigned_random() {
-        let mut rng = SmallRng::seed_from_u64(SEED);
+        let mut rng = BenchRng::seed_from_u64(SEED);
         for _ in 0..500_000 {
             let x: u128 = rng.random();
             let mut y: u128 = rng.random();
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn signed_random() {
-        let mut rng = SmallRng::seed_from_u64(SEED);
+        let mut rng = BenchRng::seed_from_u64(SEED);
         for _ in 0..500_000 {
             let x = rng.random::<u128>() as i128;
             let y = rng.random::<u128>() as i128;

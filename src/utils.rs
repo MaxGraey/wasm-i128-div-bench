@@ -3,13 +3,18 @@
  */
 
 use num_traits::AsPrimitive;
-use rand::{RngExt, SeedableRng, rngs::SmallRng};
+use rand::{RngExt, SeedableRng};
 
 /* Iteration count for the loop-invariant-divisor benchmark. */
 pub(crate) const LOOP_INVAR_ITERS: usize = 5_000;
 
 /* Fixed seed (golden-ratio) for random tests and benches. */
 pub(crate) const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/* Benchmark RNG fixed to xoshiro128++ on every target. SmallRng would resolve to
+ * xoshiro256++ on 64-bit hosts and xoshiro128++ on wasm32, so native and wasm
+ * would draw different operands from the same SEED. */
+pub(crate) type BenchRng = rand::rngs::Xoshiro128PlusPlus;
 
 /* Random dividend and a random divisor, rejecting only 0 (the divide-by-zero
  * trap) and the i128::MIN bit pattern. The divisor is no longer pinned to the
@@ -22,7 +27,7 @@ where
     T: Copy + 'static,
     u128: AsPrimitive<T>,
 {
-    let mut rng = SmallRng::seed_from_u64(SEED);
+    let mut rng = BenchRng::seed_from_u64(SEED);
     let x: u128 = rng.random();
 
     let mut y: u128 = rng.random();
