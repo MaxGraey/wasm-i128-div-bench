@@ -400,24 +400,20 @@ pub fn srem128(x: i128, y: i128) -> i128 {
     }
 }
 
-/* Benchmark scaffold for the invariant-divisor pattern, and a faithful u128
- * division. The divisor is fixed before the loop, so i64.recip128 runs once and
- * only the per-step i64.divrem_recip128 stays in the loop. Each iteration
- * computes num / d and num % d for a varying u128 num, bit-identical to
- * the native operators (see divrem_with_loop_invariant_divisor_matches_native).
- * Results fold into acc with |= so the loop cannot be optimized away. */
+/* Loop-invariant divisor benchmark. i64.recip128 hoists out of the loop, only
+ * i64.divrem_recip128 runs per step. acc folds results with |= so nothing is
+ * optimized away. */
 pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, u64) {
-    // Invariant divisor in [2^64, 2^127) - high limb nonzero with top bit clear,
-    // so the 3-by-2 path runs with a real normalization shift (lsh in 1..=63).
-    let d = ((x.0 & 0x7fff_ffff_ffff_ffff) | 1, x.1);
+    // Invariant divisor in (0, 2^127).
+    let d = (x.0 & 0x7fff_ffff_ffff_ffff, x.1.max(1));
 
-    // i64.recip128 hoisted - normalized divisor and reciprocal computed once.
+    // hoisted i64.recip128 normalized divisor
     let (d_lo, d_hi, rcp, lsh) = recip128(d.1, d.0);
 
     let mut acc = (0u64, 0u64);
     let mut i = 0usize;
+
     while i < iters {
-        // Varying dividend; i64.divrem_recip128 reuses the hoisted prep.
         let num = (x.0 ^ (i as u64), x.1);
         let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(num.1, num.0, d_lo, d_hi, rcp, lsh);
 
@@ -533,11 +529,12 @@ mod tests {
         // Mirror the divisor and dividend the function derives, then divide
         // natively, so a mismatch means the reciprocal path diverged.
         let reference = |x: (u64, u64), iters: usize| -> (u64, u64) {
-            let d = join(((x.0 & 0x7fff_ffff_ffff_ffff) | 1, x.1));
+            let d = join((x.0 & 0x7fff_ffff_ffff_ffff, x.1.max(1)));
             let mut acc = (0u64, 0u64);
             for i in 0..iters {
                 let num = join((x.0 ^ (i as u64), x.1));
-                acc.0 |= (num / d) as u64;
+                let q = num / d;
+                acc.0 |= (q as u64) | ((q >> 64) as u64);
                 let r = num % d;
                 acc.1 |= (r as u64) | ((r >> 64) as u64);
             }

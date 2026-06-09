@@ -30,11 +30,13 @@ pub fn srem128(x: i128, y: i128) -> i128 {
     x % y
 }
 
+/* Loop-invariant divisor benchmark.
+ * `acc` folds results with |= so nothing is optimized away. */
 pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, u64) {
-    let d_hi = (x.0 & 0x7fff_ffff_ffff_ffff) | 1;
-    let d = ((d_hi as u128) << 64) | x.1 as u128;
+    // Invariant divisor in (0, 2^127).
+    let d = (((x.0 & 0x7fff_ffff_ffff_ffff) as u128) << 64) | (x.1.max(1)) as u128;
 
-    let mut acc = (0u64, 0u64);
+    let mut acc = 0u128;
     let mut i = 0usize;
 
     while i < iters {
@@ -42,13 +44,13 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
         let q = num / d;
         let r = num % d;
 
-        acc.0 |= q as u64;
-        acc.1 |= (r as u64) | ((r >> 64) as u64);
+        acc |= q;
+        acc |= r;
 
         i += 1;
     }
 
-    acc
+    (acc as u64, (acc >> 64) as u64)
 }
 
 /* Criterion micro-benchmarks for the public API. Same seeded operands as the
