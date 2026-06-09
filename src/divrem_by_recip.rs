@@ -211,14 +211,14 @@ fn integer_overflow_trap() -> ! {
  * then divides. The reciprocal kernel computes quotient and remainder jointly, so
  * a caller needing only one drops the other word - there is no cheaper narrow form. */
 
-/* i64.recip128 : [y_lo y_hi] -> [d_lo d_hi rcp lsh]
+/* i64.recip128 : [y_lo y_hi] -> [lsh rcp d_lo d_hi]
  * Normalize the divisor and precompute its reciprocal. y_hi == 0 takes the
  * 2-by-1 kernel (d_hi = 0), else 3-by-2. Traps on y == 0. */
-fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u32) {
+fn recip128(y_lo: u64, y_hi: u64) -> (u32, u64, u64, u64) {
     if likely(y_hi != 0) {
         let lsh = y_hi.leading_zeros();
         let (d_hi, d_lo) = shl128((y_hi, y_lo), lsh);
-        return (d_lo, d_hi, reciprocal_3by2((d_hi, d_lo)), lsh);
+        return (lsh, reciprocal_3by2((d_hi, d_lo)), d_lo, d_hi);
     }
 
     // 64-bit divisor (y_hi == 0): 2-by-1 kernel.
@@ -228,22 +228,22 @@ fn recip128(y_lo: u64, y_hi: u64) -> (u64, u64, u64, u32) {
 
     let lsh = y_lo.leading_zeros();
     let d_lo = y_lo << lsh;
-    (d_lo, 0, reciprocal_2by1(d_lo), lsh)
+    (lsh, reciprocal_2by1(d_lo), d_lo, 0)
 }
 
-/* i64.divrem_recip128 : [x_lo x_hi d_lo d_hi rcp lsh] -> [q_lo q_hi r_lo r_hi]
+/* i64.divrem_recip128 : [lsh rcp d_lo d_hi x_lo x_hi] -> [q_lo q_hi r_lo r_hi]
  * Joint quotient and remainder. d_hi == 0 selects the 2-by-1 kernel (quotient up
  * to 128 bits), else 3-by-2 (q_hi == 0). The Y > X and lsh == 0 shortcuts skip
  * the divide multiplies, the reciprocal having already been spent in
  * i64.recip128. q and r come out together - the correction steps need r to fix
  * the quotient, so a divide-only or modulo-only caller just drops a result word. */
 fn divrem_recip128(
-    x_lo: u64,
-    x_hi: u64,
+    lsh: u32,
+    rcp: u64,
     d_lo: u64,
     d_hi: u64,
-    rcp: u64,
-    lsh: u32,
+    x_lo: u64,
+    x_hi: u64,
 ) -> (u64, u64, u64, u64) {
     if unlikely(d_hi == 0) {
         let (xn_ex, xn_hi, xn_lo) = shl128_wide((x_hi, x_lo), lsh);
@@ -284,8 +284,8 @@ pub fn udivrem128(x: u128, y: u128) -> (u128, u128) {
     let (x_hi, x_lo) = split(x);
     let (y_hi, y_lo) = split(y);
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     (join((q_hi, q_lo)), join((r_hi, r_lo)))
 }
@@ -298,8 +298,8 @@ pub fn udiv128(x: u128, y: u128) -> u128 {
     let (x_hi, x_lo) = split(x);
     let (y_hi, y_lo) = split(y);
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (q_lo, q_hi, _, _) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, _, _) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     join((q_hi, q_lo))
 }
@@ -312,8 +312,8 @@ pub fn urem128(x: u128, y: u128) -> u128 {
     let (x_hi, x_lo) = split(x);
     let (y_hi, y_lo) = split(y);
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (_, _, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (_, _, r_lo, r_hi) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     join((r_hi, r_lo))
 }
@@ -335,8 +335,8 @@ pub fn sdivrem128(x: i128, y: i128) -> (i128, i128) {
     let (x_hi, x_lo) = split(x.unsigned_abs());
     let (y_hi, y_lo) = split(y.unsigned_abs());
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     let q = join((q_hi, q_lo)) as i128;
     let r = join((r_hi, r_lo)) as i128;
@@ -368,8 +368,8 @@ pub fn sdiv128(x: i128, y: i128) -> i128 {
     let (x_hi, x_lo) = split(x.unsigned_abs());
     let (y_hi, y_lo) = split(y.unsigned_abs());
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (q_lo, q_hi, _, _) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (q_lo, q_hi, _, _) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     let q = join((q_hi, q_lo)) as i128;
 
@@ -388,8 +388,8 @@ pub fn srem128(x: i128, y: i128) -> i128 {
     let (x_hi, x_lo) = split(x.unsigned_abs());
     let (y_hi, y_lo) = split(y.unsigned_abs());
 
-    let (d_lo, d_hi, rcp, lsh) = recip128(y_lo, y_hi);
-    let (_, _, r_lo, r_hi) = divrem_recip128(x_lo, x_hi, d_lo, d_hi, rcp, lsh);
+    let (lsh, rcp, d_lo, d_hi) = recip128(y_lo, y_hi);
+    let (_, _, r_lo, r_hi) = divrem_recip128(lsh, rcp, d_lo, d_hi, x_lo, x_hi);
 
     let r = join((r_hi, r_lo)) as i128;
 
@@ -408,14 +408,14 @@ pub fn divrem_with_loop_invariant_divisor(x: (u64, u64), iters: usize) -> (u64, 
     let d = (x.0 & 0x7fff_ffff_ffff_ffff, x.1.max(1));
 
     // hoisted i64.recip128 normalized divisor
-    let (d_lo, d_hi, rcp, lsh) = recip128(d.1, d.0);
+    let (lsh, rcp, d_lo, d_hi) = recip128(d.1, d.0);
 
     let mut acc = (0u64, 0u64);
     let mut i = 0usize;
 
     while i < iters {
         let num = (x.0 ^ (i as u64), x.1);
-        let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(num.1, num.0, d_lo, d_hi, rcp, lsh);
+        let (q_lo, q_hi, r_lo, r_hi) = divrem_recip128(lsh, rcp, d_lo, d_hi, num.1, num.0);
 
         acc.0 |= q_lo | q_hi;
         acc.1 |= r_lo | r_hi;
@@ -478,7 +478,10 @@ pub fn bench_divrem_with_loop_invariant_divisor(c: &mut Criterion) {
     let mut rng = BenchRng::seed_from_u64(SEED);
     let x = (rng.random::<u64>(), rng.random::<u64>());
     c.bench_function("reciprocal/divrem_loop_invariant", |b| {
-        b.iter(|| divrem_with_loop_invariant_divisor(black_box(x), black_box(LOOP_INVAR_ITERS)))
+        b.iter(|| divrem_with_loop_invariant_divisor(
+            black_box(x),
+            black_box(LOOP_INVAR_ITERS)
+        ))
     });
 }
 
